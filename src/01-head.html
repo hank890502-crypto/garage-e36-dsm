@@ -156,6 +156,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .btn.dgr{background:transparent;color:var(--red);padding:6px 4px;min-height:auto}
 .btn.dgr:hover{background:transparent;text-decoration:underline}
 .btn.sm{padding:6px 12px;font-size:14px;min-height:32px}
+.btn.ico{width:36px;height:36px;min-height:36px;padding:0;display:inline-flex;align-items:center;justify-content:center;flex:0 0 36px}
 .btn.blk{width:100%}
 .btn:disabled{opacity:.4;cursor:not-allowed}
 .btn:focus-visible,#nav a:focus-visible,#tabbar a:focus-visible,.seg button:focus-visible{
@@ -432,8 +433,31 @@ code{font-family:var(--mono);font-size:13.5px;background:var(--fill);padding:2px
 .overview-card-head{display:flex;align-items:center;gap:10px}
 .overview-card-head .t-card{flex:1;min-width:0}
 .overview-card-head svg{color:var(--tx3)}
+.overview-card-head .btn{margin-left:auto}
 .overview-project .summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s2)}
 .overview-project .summary .it:last-child{grid-column:1/-1;padding-top:var(--s2);border-top:1px solid var(--line)}
+.fuel-reading{display:flex;align-items:baseline;gap:6px;margin-top:var(--s2)}
+.fuel-reading b{font-size:28px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.fuel-reading span{font-size:14px;color:var(--tx2)}
+.fuel-reading-sub{font-size:13px;color:var(--tx2);margin-top:7px;line-height:1.5}
+.fuel-mini{margin-top:var(--s2);padding-top:var(--s2);border-top:1px solid var(--line)}
+.fuel-mini .row{gap:10px;font-size:14px}
+.fuel-mini .row+.row{margin-top:9px}
+.fuel-mini time{color:var(--tx2);font-size:13px;font-variant-numeric:tabular-nums;min-width:78px}
+.fuel-mini .amt{margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+.fuel-log-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s2);padding:var(--s2);background:var(--fill);border-radius:var(--rs);margin-bottom:var(--s2)}
+.fuel-log-summary .lb{font-size:12px;color:var(--tx2)}
+.fuel-log-summary .vl{font-size:20px;font-weight:650;font-variant-numeric:tabular-nums;margin-top:2px}
+.fuel-log-list{border-top:1px solid var(--line)}
+.fuel-log-item{display:grid;grid-template-columns:112px minmax(0,1fr) auto;gap:var(--s2);align-items:center;padding:14px 0;border-bottom:1px solid var(--line)}
+.fuel-log-item:last-child{border-bottom:0}
+.fuel-log-item .when{font-size:13px;color:var(--tx2);font-variant-numeric:tabular-nums}
+.fuel-log-item .main{min-width:0}
+.fuel-log-item .main b{display:block;font-size:15px;font-weight:650}
+.fuel-log-item .main span{display:block;font-size:13px;color:var(--tx2);overflow-wrap:anywhere}
+.fuel-log-item .actions{display:flex;align-items:center;gap:8px}
+.fuel-log-item .cost{font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
 
 /* ---------- 保養履歷 ---------- */
 .history-summary .summary{gap:0}
@@ -524,6 +548,12 @@ code{font-family:var(--mono);font-size:13.5px;background:var(--fill);padding:2px
   .history-when{grid-column:1/-1;flex-direction:row;align-items:baseline;gap:10px}
   .history-content{grid-column:1;grid-row:2}
   .history-cost{grid-column:2;grid-row:2}
+  .fuel-log-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .fuel-log-summary>div:last-child{grid-column:1/-1;padding-top:10px;border-top:1px solid var(--line)}
+  .fuel-log-item{grid-template-columns:minmax(0,1fr) auto;gap:8px var(--s2)}
+  .fuel-log-item .when{grid-column:1/-1}
+  .fuel-log-item .main{grid-column:1;grid-row:2}
+  .fuel-log-item .actions{grid-column:2;grid-row:2;flex-direction:column;align-items:flex-end;gap:2px}
 }
 @media(max-width:420px){.wheelpick{grid-template-columns:repeat(3,1fr)}}
 </style>

@@ -60,6 +60,8 @@ function pgOverview(){
         </details>` : ''}
       </div>
 
+      ${fuelOverviewCard(c)}
+
       <!-- 目前改裝專案 -->
       <div class="card overview-project">
         <div class="overview-card-head">${ic('chart',20)}<h3 class="t-card">改裝專案</h3></div>

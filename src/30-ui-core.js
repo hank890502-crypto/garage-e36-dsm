@@ -284,7 +284,7 @@ function repairDB(){
       if(c[k]===undefined){ c[k] = structuredClone(blank[k]); n++; }
     });
     c.build = Object.assign(structuredClone(blank.build), c.build||{});
-    ['parts','logs','plans','project'].forEach(k=>{ if(!Array.isArray(c[k])) c[k]=[]; });
+    ['parts','logs','fuelLogs','plans','project'].forEach(k=>{ if(!Array.isArray(c[k])) c[k]=[]; });
     if(!c.plat) c.plat = 'e36';
   });
   saveDB();

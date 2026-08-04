@@ -156,6 +156,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .btn.dgr{background:transparent;color:var(--red);padding:6px 4px;min-height:auto}
 .btn.dgr:hover{background:transparent;text-decoration:underline}
 .btn.sm{padding:6px 12px;font-size:14px;min-height:32px}
+.btn.ico{width:36px;height:36px;min-height:36px;padding:0;display:inline-flex;align-items:center;justify-content:center;flex:0 0 36px}
 .btn.blk{width:100%}
 .btn:disabled{opacity:.4;cursor:not-allowed}
 .btn:focus-visible,#nav a:focus-visible,#tabbar a:focus-visible,.seg button:focus-visible{
@@ -432,8 +433,31 @@ code{font-family:var(--mono);font-size:13.5px;background:var(--fill);padding:2px
 .overview-card-head{display:flex;align-items:center;gap:10px}
 .overview-card-head .t-card{flex:1;min-width:0}
 .overview-card-head svg{color:var(--tx3)}
+.overview-card-head .btn{margin-left:auto}
 .overview-project .summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s2)}
 .overview-project .summary .it:last-child{grid-column:1/-1;padding-top:var(--s2);border-top:1px solid var(--line)}
+.fuel-reading{display:flex;align-items:baseline;gap:6px;margin-top:var(--s2)}
+.fuel-reading b{font-size:28px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.fuel-reading span{font-size:14px;color:var(--tx2)}
+.fuel-reading-sub{font-size:13px;color:var(--tx2);margin-top:7px;line-height:1.5}
+.fuel-mini{margin-top:var(--s2);padding-top:var(--s2);border-top:1px solid var(--line)}
+.fuel-mini .row{gap:10px;font-size:14px}
+.fuel-mini .row+.row{margin-top:9px}
+.fuel-mini time{color:var(--tx2);font-size:13px;font-variant-numeric:tabular-nums;min-width:78px}
+.fuel-mini .amt{margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+.fuel-log-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s2);padding:var(--s2);background:var(--fill);border-radius:var(--rs);margin-bottom:var(--s2)}
+.fuel-log-summary .lb{font-size:12px;color:var(--tx2)}
+.fuel-log-summary .vl{font-size:20px;font-weight:650;font-variant-numeric:tabular-nums;margin-top:2px}
+.fuel-log-list{border-top:1px solid var(--line)}
+.fuel-log-item{display:grid;grid-template-columns:112px minmax(0,1fr) auto;gap:var(--s2);align-items:center;padding:14px 0;border-bottom:1px solid var(--line)}
+.fuel-log-item:last-child{border-bottom:0}
+.fuel-log-item .when{font-size:13px;color:var(--tx2);font-variant-numeric:tabular-nums}
+.fuel-log-item .main{min-width:0}
+.fuel-log-item .main b{display:block;font-size:15px;font-weight:650}
+.fuel-log-item .main span{display:block;font-size:13px;color:var(--tx2);overflow-wrap:anywhere}
+.fuel-log-item .actions{display:flex;align-items:center;gap:8px}
+.fuel-log-item .cost{font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
 
 /* ---------- 保養履歷 ---------- */
 .history-summary .summary{gap:0}
@@ -524,6 +548,12 @@ code{font-family:var(--mono);font-size:13.5px;background:var(--fill);padding:2px
   .history-when{grid-column:1/-1;flex-direction:row;align-items:baseline;gap:10px}
   .history-content{grid-column:1;grid-row:2}
   .history-cost{grid-column:2;grid-row:2}
+  .fuel-log-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .fuel-log-summary>div:last-child{grid-column:1/-1;padding-top:10px;border-top:1px solid var(--line)}
+  .fuel-log-item{grid-template-columns:minmax(0,1fr) auto;gap:8px var(--s2)}
+  .fuel-log-item .when{grid-column:1/-1}
+  .fuel-log-item .main{grid-column:1;grid-row:2}
+  .fuel-log-item .actions{grid-column:2;grid-row:2;flex-direction:column;align-items:flex-end;gap:2px}
 }
 @media(max-width:420px){.wheelpick{grid-template-columns:repeat(3,1fr)}}
 </style>
@@ -2462,7 +2492,7 @@ const blankCar = () => ({
   build:{ paint:'alpine', wheel:'st42', finish:'silver', size:17, tireW:245, tireAR:40,
           drop:0, caliper:'stock', tint:0, lip:false, skirt:false, wing:'none',
           diffuser:false, wide:false, tips:'single', shadow:false, hood:false },
-  parts:[], logs:[], plans:[], project:[],
+  parts:[], logs:[], fuelLogs:[], plans:[], project:[],
 });
 
 /* tracks 為後加欄位：舊備份沒有這個鍵時，Object.assign 會補上空陣列，不影響既有資料 */
@@ -2474,7 +2504,9 @@ function loadDB(){
     const r = localStorage.getItem(LSKEY);
     if(!r) return structuredClone(DEF);
     const d = JSON.parse(r);
-    return Object.assign(structuredClone(DEF), d);
+    const out = Object.assign(structuredClone(DEF), d);
+    (out.cars||[]).forEach(c=>{ if(!Array.isArray(c.fuelLogs)) c.fuelLogs=[]; });
+    return out;
   }catch(e){ return structuredClone(DEF); }
 }
 function saveDB(){
@@ -3035,7 +3067,7 @@ function repairDB(){
       if(c[k]===undefined){ c[k] = structuredClone(blank[k]); n++; }
     });
     c.build = Object.assign(structuredClone(blank.build), c.build||{});
-    ['parts','logs','plans','project'].forEach(k=>{ if(!Array.isArray(c[k])) c[k]=[]; });
+    ['parts','logs','fuelLogs','plans','project'].forEach(k=>{ if(!Array.isArray(c[k])) c[k]=[]; });
     if(!c.plat) c.plat = 'e36';
   });
   saveDB();
@@ -3329,6 +3361,8 @@ function pgOverview(){
           <p class="t-cap" style="margin-top:var(--s2)">建立第一筆紀錄後，系統就會依里程與時間自動推算下次到期。</p></div>
         </details>` : ''}
       </div>
+
+      ${fuelOverviewCard(c)}
 
       <!-- 目前改裝專案 -->
       <div class="card overview-project">
@@ -4877,7 +4911,7 @@ function mpCount(){
 
 /* ===== 36-page-fuel.js ===== */
 /* ==========================================================================
-   加油：中油油價 + 加滿試算
+   加油：油耗紀錄 + 中油油價 + 加滿試算
    油價存在 UI 偏好鍵（e36garage.ui），不動車輛資料格式。
    油箱容量存在車輛物件的 tank 欄位（新增欄位，舊備份沒有就用預設值）。
    ========================================================================== */
@@ -4891,6 +4925,124 @@ function fuelNow(){
 }
 function fuelPrice(k){ return (fuelNow().list.find(x=>x.k===k)||{}).p ?? null; }
 function tankOf(c){ return +c.tank || TANK_DEF[c.bodyId] || 65; }
+
+/* ---- 油耗紀錄：滿油到滿油，中間補油也會納入 ---- */
+function fuelLogsOf(c){ return Array.isArray(c?.fuelLogs) ? c.fuelLogs : []; }
+function fuelLogsSorted(c, desc=false){
+  const a = fuelLogsOf(c).slice().sort((x,y)=>(+x.km||0)-(+y.km||0) || String(x.date||'').localeCompare(String(y.date||'')));
+  return desc ? a.reverse() : a;
+}
+function fuelCycles(c){
+  const out = [];
+  let anchor = null, liters = 0;
+  fuelLogsSorted(c).forEach(log=>{
+    const km = +log.km||0, qty = +log.liters||0;
+    if(!anchor){ if(log.full && km>0) anchor = log; return; }
+    if(km < (+anchor.km||0)) return;
+    if(qty>0) liters += qty;
+    if(log.full){
+      const dist = km-(+anchor.km||0);
+      if(dist>0 && liters>0) out.push({from:anchor,to:log,dist,liters,kml:dist/liters,l100:liters/dist*100});
+      anchor = log; liters = 0;
+    }
+  });
+  return out;
+}
+function fuelStats(c){
+  const logs = fuelLogsOf(c), cycles = fuelCycles(c), recent = cycles.slice(-5);
+  const dist = recent.reduce((s,x)=>s+x.dist,0), liters = recent.reduce((s,x)=>s+x.liters,0);
+  return {
+    logs, cycles, latest:cycles[cycles.length-1]||null,
+    avg:dist>0&&liters>0 ? {kml:dist/liters,l100:liters/dist*100} : null,
+    spent:logs.reduce((s,x)=>s+(+x.total||0),0), liters:logs.reduce((s,x)=>s+(+x.liters||0),0),
+  };
+}
+function fuelOverviewCard(c){
+  const s = fuelStats(c), recent = fuelLogsSorted(c,true).slice(0,2);
+  const reading = s.latest
+    ? `<div class="fuel-reading"><b>${p1(s.latest.kml)}</b><span>km/L</span></div>
+       <div class="fuel-reading-sub">${p1(s.latest.l100)} L/100 km · ${nf(s.latest.dist)} km</div>`
+    : `<div class="fuel-reading"><b>—</b><span>km/L</span></div>
+       <div class="fuel-reading-sub">${s.logs.length?'等待下一筆滿油紀錄':'尚無加油紀錄'}</div>`;
+  return `<div class="card overview-fuel">
+    <div class="overview-card-head">${ic('droplet',20)}<h3 class="t-card">油耗紀錄</h3>
+      <button class="btn sm" onclick="editFuelLog()">${ic('plus',16)} 新增</button></div>
+    ${reading}
+    ${recent.length?`<div class="fuel-mini">${recent.map(x=>`<div class="row">
+      <time>${esc(x.date||'—')}</time><span>${p1(x.liters)} L</span>
+      <span class="amt">${+x.total?money(x.total):'—'}</span></div>`).join('')}</div>`:''}
+    <div class="btnrow" style="margin-top:var(--s2)">
+      <button class="btn txt" onclick="showFuelLogs()">全部紀錄${s.logs.length?` · ${s.logs.length}`:''} →</button>
+    </div>
+  </div>`;
+}
+
+function editFuelLog(id){
+  const c = car(); if(!c) return;
+  const old = id ? fuelLogsOf(c).find(x=>x.id===id) : null;
+  const log = old ? structuredClone(old) : {id:uid(),date:today(),km:c.km||0,liters:'',total:'',full:true,note:''};
+  modal({title:old?'編輯加油紀錄':'新增加油紀錄', body:`
+    <div class="grid g2">
+      <div class="fld"><label>加油日期</label><input class="inp" id="fl_date" type="date" value="${esc(log.date||today())}"></div>
+      <div class="fld"><label>當時里程（km）</label><input class="inp" id="fl_km" type="number" min="0" step="1" value="${+log.km||0}"></div>
+      <div class="fld"><label>加油量（L）</label><input class="inp" id="fl_liters" type="number" min="0.01" step="0.01" inputmode="decimal" value="${esc(log.liters)}" placeholder="42.5"></div>
+      <div class="fld"><label>總金額（元）</label><input class="inp" id="fl_total" type="number" min="0" step="1" inputmode="decimal" value="${esc(log.total)}" placeholder="1350"></div>
+    </div>
+    <label class="chk" style="border:0;padding:8px 0 var(--s2)">
+      <input id="fl_full" type="checkbox" ${log.full?'checked':''}>
+      <span>這次有加滿</span><span class="rt">用於滿油到滿油計算</span>
+    </label>
+    <div class="fld"><label>備註</label><textarea class="inp" id="fl_note" placeholder="油品、加油站或行車狀況">${esc(log.note||'')}</textarea></div>`,
+    footer:`${old?`<button class="btn dgr" onclick="confirmDeleteFuelLog('${log.id}')">刪除</button>`:''}
+      <button class="btn" style="margin-left:auto" onclick="closeModal()">取消</button>
+      <button class="btn pri" onclick="saveFuelLog('${log.id}',${old?'false':'true'})">儲存</button>`});
+}
+function saveFuelLog(id, isNew){
+  const c = car(); if(!c) return;
+  const date = $('#fl_date').value;
+  const km = Math.round(+$('#fl_km').value||0);
+  const liters = +$('#fl_liters').value||0;
+  const total = +$('#fl_total').value||0;
+  if(!date) return toast('請選擇加油日期');
+  if(km<=0) return toast('請填當時里程');
+  if(liters<=0) return toast('請填加油公升數');
+  const log = {id,date,km,liters:Math.round(liters*100)/100,total:Math.max(0,Math.round(total)),
+    full:$('#fl_full').checked,note:$('#fl_note').value.trim()};
+  if(!Array.isArray(c.fuelLogs)) c.fuelLogs=[];
+  if(isNew) c.fuelLogs.push(log);
+  else { const i=c.fuelLogs.findIndex(x=>x.id===id); if(i>=0) c.fuelLogs[i]=log; else c.fuelLogs.push(log); }
+  if(km>(c.km||0)) c.km=km;
+  saveDB(); closeModal(); render();
+  const latest = fuelStats(c).latest;
+  toast(latest && latest.to.id===id ? `已儲存，本次 ${p1(latest.kml)} km/L` : '已儲存加油紀錄');
+}
+function showFuelLogs(){
+  const c = car(); if(!c) return;
+  const s=fuelStats(c), logs=fuelLogsSorted(c,true);
+  modal({title:'油耗紀錄', wide:true, body:`
+    <div class="fuel-log-summary">
+      <div><div class="lb">近 5 次平均</div><div class="vl">${s.avg?p1(s.avg.kml)+' km/L':'—'}</div></div>
+      <div><div class="lb">累計加油</div><div class="vl">${p1(s.liters)} L</div></div>
+      <div><div class="lb">累計金額</div><div class="vl">${money(s.spent)}</div></div>
+    </div>
+    ${logs.length?`<div class="fuel-log-list">${logs.map(x=>`<div class="fuel-log-item">
+      <div class="when">${esc(x.date||'—')}<br>${nf(x.km)} km</div>
+      <div class="main"><b>${p1(x.liters)} L${x.full?' · 已加滿':''}</b>
+        <span>${+x.total&&+x.liters?`${p1(x.total/x.liters)} 元/L`:''}${x.note?`${+x.total&&+x.liters?' · ':''}${esc(x.note)}`:''}</span></div>
+      <div class="actions"><span class="cost">${+x.total?money(x.total):'—'}</span>
+        <button class="btn ico" title="編輯紀錄" aria-label="編輯 ${esc(x.date||'')}加油紀錄" onclick="editFuelLog('${x.id}')">${ic('edit',17)}</button></div>
+    </div>`).join('')}</div>`:`<div class="empty" style="padding:var(--s4) 0">${ic('droplet',40)}<p>尚無加油紀錄</p></div>`}`,
+    footer:`<button class="btn" onclick="closeModal()">關閉</button><button class="btn pri" onclick="editFuelLog()">${ic('plus',18)} 新增紀錄</button>`});
+}
+function confirmDeleteFuelLog(id){
+  const c=car(), log=fuelLogsOf(c).find(x=>x.id===id); if(!log) return;
+  modal({title:'刪除加油紀錄', body:`<p>確定要刪除 <b>${esc(log.date||'—')}</b>、${p1(log.liters)} L 的紀錄嗎？</p>`,
+    footer:`<button class="btn" onclick="closeModal()">取消</button><button class="btn pri" style="background:var(--red)" onclick="deleteFuelLog('${id}')">刪除</button>`});
+}
+function deleteFuelLog(id){
+  const c=car(); if(!c) return;
+  c.fuelLogs=fuelLogsOf(c).filter(x=>x.id!==id); saveDB(); closeModal(); render(); toast('已刪除加油紀錄');
+}
 
 /* 油價新舊程度：中油每週一調價，超過 8 天就提醒可能過期 */
 function fuelAge(){

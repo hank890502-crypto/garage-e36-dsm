@@ -19,7 +19,7 @@ const blankCar = () => ({
   build:{ paint:'alpine', wheel:'st42', finish:'silver', size:17, tireW:245, tireAR:40,
           drop:0, caliper:'stock', tint:0, lip:false, skirt:false, wing:'none',
           diffuser:false, wide:false, tips:'single', shadow:false, hood:false },
-  parts:[], logs:[], plans:[], project:[],
+  parts:[], logs:[], fuelLogs:[], plans:[], project:[],
 });
 
 /* tracks 為後加欄位：舊備份沒有這個鍵時，Object.assign 會補上空陣列，不影響既有資料 */
@@ -31,7 +31,9 @@ function loadDB(){
     const r = localStorage.getItem(LSKEY);
     if(!r) return structuredClone(DEF);
     const d = JSON.parse(r);
-    return Object.assign(structuredClone(DEF), d);
+    const out = Object.assign(structuredClone(DEF), d);
+    (out.cars||[]).forEach(c=>{ if(!Array.isArray(c.fuelLogs)) c.fuelLogs=[]; });
+    return out;
   }catch(e){ return structuredClone(DEF); }
 }
 function saveDB(){

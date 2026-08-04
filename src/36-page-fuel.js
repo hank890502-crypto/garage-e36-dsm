@@ -1,5 +1,5 @@
 /* ==========================================================================
-   加油：中油油價 + 加滿試算
+   加油：油耗紀錄 + 中油油價 + 加滿試算
    油價存在 UI 偏好鍵（e36garage.ui），不動車輛資料格式。
    油箱容量存在車輛物件的 tank 欄位（新增欄位，舊備份沒有就用預設值）。
    ========================================================================== */
@@ -13,6 +13,124 @@ function fuelNow(){
 }
 function fuelPrice(k){ return (fuelNow().list.find(x=>x.k===k)||{}).p ?? null; }
 function tankOf(c){ return +c.tank || TANK_DEF[c.bodyId] || 65; }
+
+/* ---- 油耗紀錄：滿油到滿油，中間補油也會納入 ---- */
+function fuelLogsOf(c){ return Array.isArray(c?.fuelLogs) ? c.fuelLogs : []; }
+function fuelLogsSorted(c, desc=false){
+  const a = fuelLogsOf(c).slice().sort((x,y)=>(+x.km||0)-(+y.km||0) || String(x.date||'').localeCompare(String(y.date||'')));
+  return desc ? a.reverse() : a;
+}
+function fuelCycles(c){
+  const out = [];
+  let anchor = null, liters = 0;
+  fuelLogsSorted(c).forEach(log=>{
+    const km = +log.km||0, qty = +log.liters||0;
+    if(!anchor){ if(log.full && km>0) anchor = log; return; }
+    if(km < (+anchor.km||0)) return;
+    if(qty>0) liters += qty;
+    if(log.full){
+      const dist = km-(+anchor.km||0);
+      if(dist>0 && liters>0) out.push({from:anchor,to:log,dist,liters,kml:dist/liters,l100:liters/dist*100});
+      anchor = log; liters = 0;
+    }
+  });
+  return out;
+}
+function fuelStats(c){
+  const logs = fuelLogsOf(c), cycles = fuelCycles(c), recent = cycles.slice(-5);
+  const dist = recent.reduce((s,x)=>s+x.dist,0), liters = recent.reduce((s,x)=>s+x.liters,0);
+  return {
+    logs, cycles, latest:cycles[cycles.length-1]||null,
+    avg:dist>0&&liters>0 ? {kml:dist/liters,l100:liters/dist*100} : null,
+    spent:logs.reduce((s,x)=>s+(+x.total||0),0), liters:logs.reduce((s,x)=>s+(+x.liters||0),0),
+  };
+}
+function fuelOverviewCard(c){
+  const s = fuelStats(c), recent = fuelLogsSorted(c,true).slice(0,2);
+  const reading = s.latest
+    ? `<div class="fuel-reading"><b>${p1(s.latest.kml)}</b><span>km/L</span></div>
+       <div class="fuel-reading-sub">${p1(s.latest.l100)} L/100 km · ${nf(s.latest.dist)} km</div>`
+    : `<div class="fuel-reading"><b>—</b><span>km/L</span></div>
+       <div class="fuel-reading-sub">${s.logs.length?'等待下一筆滿油紀錄':'尚無加油紀錄'}</div>`;
+  return `<div class="card overview-fuel">
+    <div class="overview-card-head">${ic('droplet',20)}<h3 class="t-card">油耗紀錄</h3>
+      <button class="btn sm" onclick="editFuelLog()">${ic('plus',16)} 新增</button></div>
+    ${reading}
+    ${recent.length?`<div class="fuel-mini">${recent.map(x=>`<div class="row">
+      <time>${esc(x.date||'—')}</time><span>${p1(x.liters)} L</span>
+      <span class="amt">${+x.total?money(x.total):'—'}</span></div>`).join('')}</div>`:''}
+    <div class="btnrow" style="margin-top:var(--s2)">
+      <button class="btn txt" onclick="showFuelLogs()">全部紀錄${s.logs.length?` · ${s.logs.length}`:''} →</button>
+    </div>
+  </div>`;
+}
+
+function editFuelLog(id){
+  const c = car(); if(!c) return;
+  const old = id ? fuelLogsOf(c).find(x=>x.id===id) : null;
+  const log = old ? structuredClone(old) : {id:uid(),date:today(),km:c.km||0,liters:'',total:'',full:true,note:''};
+  modal({title:old?'編輯加油紀錄':'新增加油紀錄', body:`
+    <div class="grid g2">
+      <div class="fld"><label>加油日期</label><input class="inp" id="fl_date" type="date" value="${esc(log.date||today())}"></div>
+      <div class="fld"><label>當時里程（km）</label><input class="inp" id="fl_km" type="number" min="0" step="1" value="${+log.km||0}"></div>
+      <div class="fld"><label>加油量（L）</label><input class="inp" id="fl_liters" type="number" min="0.01" step="0.01" inputmode="decimal" value="${esc(log.liters)}" placeholder="42.5"></div>
+      <div class="fld"><label>總金額（元）</label><input class="inp" id="fl_total" type="number" min="0" step="1" inputmode="decimal" value="${esc(log.total)}" placeholder="1350"></div>
+    </div>
+    <label class="chk" style="border:0;padding:8px 0 var(--s2)">
+      <input id="fl_full" type="checkbox" ${log.full?'checked':''}>
+      <span>這次有加滿</span><span class="rt">用於滿油到滿油計算</span>
+    </label>
+    <div class="fld"><label>備註</label><textarea class="inp" id="fl_note" placeholder="油品、加油站或行車狀況">${esc(log.note||'')}</textarea></div>`,
+    footer:`${old?`<button class="btn dgr" onclick="confirmDeleteFuelLog('${log.id}')">刪除</button>`:''}
+      <button class="btn" style="margin-left:auto" onclick="closeModal()">取消</button>
+      <button class="btn pri" onclick="saveFuelLog('${log.id}',${old?'false':'true'})">儲存</button>`});
+}
+function saveFuelLog(id, isNew){
+  const c = car(); if(!c) return;
+  const date = $('#fl_date').value;
+  const km = Math.round(+$('#fl_km').value||0);
+  const liters = +$('#fl_liters').value||0;
+  const total = +$('#fl_total').value||0;
+  if(!date) return toast('請選擇加油日期');
+  if(km<=0) return toast('請填當時里程');
+  if(liters<=0) return toast('請填加油公升數');
+  const log = {id,date,km,liters:Math.round(liters*100)/100,total:Math.max(0,Math.round(total)),
+    full:$('#fl_full').checked,note:$('#fl_note').value.trim()};
+  if(!Array.isArray(c.fuelLogs)) c.fuelLogs=[];
+  if(isNew) c.fuelLogs.push(log);
+  else { const i=c.fuelLogs.findIndex(x=>x.id===id); if(i>=0) c.fuelLogs[i]=log; else c.fuelLogs.push(log); }
+  if(km>(c.km||0)) c.km=km;
+  saveDB(); closeModal(); render();
+  const latest = fuelStats(c).latest;
+  toast(latest && latest.to.id===id ? `已儲存，本次 ${p1(latest.kml)} km/L` : '已儲存加油紀錄');
+}
+function showFuelLogs(){
+  const c = car(); if(!c) return;
+  const s=fuelStats(c), logs=fuelLogsSorted(c,true);
+  modal({title:'油耗紀錄', wide:true, body:`
+    <div class="fuel-log-summary">
+      <div><div class="lb">近 5 次平均</div><div class="vl">${s.avg?p1(s.avg.kml)+' km/L':'—'}</div></div>
+      <div><div class="lb">累計加油</div><div class="vl">${p1(s.liters)} L</div></div>
+      <div><div class="lb">累計金額</div><div class="vl">${money(s.spent)}</div></div>
+    </div>
+    ${logs.length?`<div class="fuel-log-list">${logs.map(x=>`<div class="fuel-log-item">
+      <div class="when">${esc(x.date||'—')}<br>${nf(x.km)} km</div>
+      <div class="main"><b>${p1(x.liters)} L${x.full?' · 已加滿':''}</b>
+        <span>${+x.total&&+x.liters?`${p1(x.total/x.liters)} 元/L`:''}${x.note?`${+x.total&&+x.liters?' · ':''}${esc(x.note)}`:''}</span></div>
+      <div class="actions"><span class="cost">${+x.total?money(x.total):'—'}</span>
+        <button class="btn ico" title="編輯紀錄" aria-label="編輯 ${esc(x.date||'')}加油紀錄" onclick="editFuelLog('${x.id}')">${ic('edit',17)}</button></div>
+    </div>`).join('')}</div>`:`<div class="empty" style="padding:var(--s4) 0">${ic('droplet',40)}<p>尚無加油紀錄</p></div>`}`,
+    footer:`<button class="btn" onclick="closeModal()">關閉</button><button class="btn pri" onclick="editFuelLog()">${ic('plus',18)} 新增紀錄</button>`});
+}
+function confirmDeleteFuelLog(id){
+  const c=car(), log=fuelLogsOf(c).find(x=>x.id===id); if(!log) return;
+  modal({title:'刪除加油紀錄', body:`<p>確定要刪除 <b>${esc(log.date||'—')}</b>、${p1(log.liters)} L 的紀錄嗎？</p>`,
+    footer:`<button class="btn" onclick="closeModal()">取消</button><button class="btn pri" style="background:var(--red)" onclick="deleteFuelLog('${id}')">刪除</button>`});
+}
+function deleteFuelLog(id){
+  const c=car(); if(!c) return;
+  c.fuelLogs=fuelLogsOf(c).filter(x=>x.id!==id); saveDB(); closeModal(); render(); toast('已刪除加油紀錄');
+}
 
 /* 油價新舊程度：中油每週一調價，超過 8 天就提醒可能過期 */
 function fuelAge(){
