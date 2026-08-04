@@ -4,5 +4,7 @@ node_modules/
 # 原廠維修手冊原始檔（體積大且為第三方著作，不進版控）
 *.tgz
 1997 Mitsubishi Eclipse*/
-assets/
 _to_delete/
+# AI 素材：保留 processed（重建 05-assets.js 需要），raw 原檔太大不進版控
+assets/*/raw/
+assets/*/preview-sheet.png

@@ -1,0 +1,63 @@
+{
+  "generatedAt": "2026-08-05",
+  "generator": "Codex built-in imagegen",
+  "sourcePrompt": "../../Eclipse-2G-\u5716\u7247\u751f\u6210Prompt.md",
+  "postProcessing": {
+    "backgroundKey": "auto-sampled magenta border",
+    "alpha": "chroma-key removal with soft matte and despill",
+    "wheelProcessedSize": [1024, 1024],
+    "bodyProcessedSize": [1536, 1024]
+  },
+  "bodyAssets": [
+    {
+      "id": "coupe2g",
+      "raw": "raw/body-coupe2g.png",
+      "processed": "processed/body-coupe2g.png",
+      "rawSize": [1536, 1024],
+      "processedSize": [1536, 1024],
+      "approxWheelCenters": {
+        "front": [344, 647],
+        "rear": [1252, 646]
+      },
+      "note": "Strong candidate. Left-facing side profile, fixed headlights, fastback hatch, spoiler, and black disc wheels are clear. Exhaust tip is close to the right edge."
+    },
+    {
+      "id": "spyder2g",
+      "raw": "raw/body-spyder2g.png",
+      "processed": "processed/body-spyder2g.png",
+      "rawSize": [1536, 1024],
+      "processedSize": [1536, 1024],
+      "approxWheelCenters": {
+        "front": [330, 636],
+        "rear": [1252, 636]
+      },
+      "note": "Strong candidate. Roof-down Spyder silhouette, tonneau cover, short boot, and black disc wheels are clear. Exhaust tip is close to the right edge."
+    }
+  ],
+  "wheelAssets": [
+    {
+      "id": "ecl-oem",
+      "raw": "raw/wheel-ecl-oem.png",
+      "processed": "processed/wheel-ecl-oem.png",
+      "rawSize": [1254, 1254],
+      "processedSize": [1024, 1024],
+      "note": "Strong candidate. Six-spoke OEM-style silver wheel with clean transparent gaps."
+    },
+    {
+      "id": "ecl-mesh6",
+      "raw": "raw/wheel-ecl-mesh6.png",
+      "processed": "processed/wheel-ecl-mesh6.png",
+      "rawSize": [1254, 1254],
+      "processedSize": [1024, 1024],
+      "note": "Usable multi-spoke Japanese aftermarket-style wheel. Less split-pair mesh than requested, but clean and transparent."
+    },
+    {
+      "id": "ecl-gold",
+      "raw": "raw/wheel-ecl-gold.png",
+      "processed": "processed/wheel-ecl-gold.png",
+      "rawSize": [1254, 1254],
+      "processedSize": [1024, 1024],
+      "note": "Strong candidate. Gold six-spoke tuner wheel with polished lip and clean transparent gaps."
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "generatedAt": "2026-08-04",
+  "generator": "Codex built-in imagegen",
+  "postProcessing": {
+    "backgroundKey": "auto-sampled magenta border",
+    "alpha": "chroma-key removal with soft matte and despill",
+    "wheelProcessedSize": [1024, 1024],
+    "bodyProcessedSize": [1536, 1024]
+  },
+  "bodyAssets": [
+    {
+      "id": "coupe",
+      "raw": "raw/body-coupe.png",
+      "processed": "processed/body-coupe.png",
+      "rawSize": [1536, 1024],
+      "processedSize": [1536, 1024],
+      "note": "Strong candidate. Clean side profile and black temporary wheel discs."
+    },
+    {
+      "id": "sedan",
+      "raw": "raw/body-sedan.png",
+      "processed": "processed/body-sedan.png",
+      "rawSize": [1536, 1024],
+      "processedSize": [1536, 1024],
+      "note": "Strong candidate. Four-door greenhouse and handles are clear."
+    },
+    {
+      "id": "touring",
+      "raw": "raw/body-touring.png",
+      "processed": "processed/body-touring.png",
+      "rawSize": [1536, 1024],
+      "processedSize": [1536, 1024],
+      "note": "Strong candidate. Wagon roofline and rear quarter are clear."
+    },
+    {
+      "id": "compact",
+      "raw": "raw/body-compact.png",
+      "processed": "processed/body-compact.png",
+      "rawSize": [1536, 1024],
+      "processedSize": [1536, 1024],
+      "note": "Usable candidate, but not a perfect E36 Compact silhouette. Review before production replacement."
+    },
+    {
+      "id": "cabrio",
+      "raw": "raw/body-cabrio.png",
+      "processed": "processed/body-cabrio.png",
+      "rawSize": [1536, 1024],
+      "processedSize": [1536, 1024],
+      "note": "Strong candidate. Roof-down body and clean deck are clear."
+    }
+  ],
+  "wheelAssets": [
+    {
+      "id": "st5",
+      "raw": "raw/wheel-st5.png",
+      "processed": "processed/wheel-st5.png",
+      "processedSize": [1024, 1024],
+      "note": "Usable twin-spoke category asset, not an exact Style 5 mesh/BBS reproduction."
+    },
+    {
+      "id": "st42",
+      "raw": "raw/wheel-st42.png",
+      "processed": "processed/wheel-st42.png",
+      "processedSize": [1024, 1024],
+      "note": "Clean ten-spoke asset, but the crossing X pattern is subtle."
+    },
+    {
+      "id": "st39",
+      "raw": "raw/wheel-st39.png",
+      "processed": "processed/wheel-st39.png",
+      "processedSize": [1024, 1024],
+      "note": "Good V-split sunflower-style category asset."
+    },
+    {
+      "id": "st24",
+      "raw": "raw/wheel-st24.png",
+      "processed": "processed/wheel-st24.png",
+      "processedSize": [1024, 1024],
+      "note": "Clean ten-spoke asset. Spokes are broader than the prompt requested."
+    },
+    {
+      "id": "mesh",
+      "raw": "raw/wheel-mesh.png",
+      "processed": "processed/wheel-mesh.png",
+      "processedSize": [1024, 1024],
+      "note": "Strong candidate. Dense mesh and transparent gaps are clear."
+    },
+    {
+      "id": "st66",
+      "raw": "raw/wheel-st66.png",
+      "processed": "processed/wheel-st66.png",
+      "processedSize": [1024, 1024],
+      "note": "Usable parallel-spoke asset, visually close to st5."
+    },
+    {
+      "id": "dish",
+      "raw": "raw/wheel-dish.png",
+      "processed": "processed/wheel-dish.png",
+      "processedSize": [1024, 1024],
+      "note": "Strong candidate. Deep polished lip is clear."
+    },
+    {
+      "id": "steel",
+      "raw": "raw/wheel-steel.png",
+      "processed": "processed/wheel-steel.png",
+      "processedSize": [1024, 1024],
+      "note": "Strong candidate. Simple hubcap and five vents are clear."
+    }
+  ],
+  "heroAssets": [
+    {
+      "id": "hero-e36-m3",
+      "raw": "raw/hero-e36-m3.png",
+      "rawSize": [1536, 1024],
+      "note": "Optional dashboard visual. No chroma key required."
+    }
+  ]
+}
