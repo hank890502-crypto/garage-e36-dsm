@@ -1,0 +1,11 @@
+Model Information:
+* title:	BMW E36 Coupe
+* source:	https://sketchfab.com/3d-models/bmw-e36-coupe-d637326e3fb24c5d910825e714e30f8d
+* author:	Ricy (https://sketchfab.com/ricylegend)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "BMW E36 Coupe" (https://sketchfab.com/3d-models/bmw-e36-coupe-d637326e3fb24c5d910825e714e30f8d) by Ricy (https://sketchfab.com/ricylegend) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

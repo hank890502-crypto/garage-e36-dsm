@@ -1,0 +1,11 @@
+Model Information:
+* title:	Mitsubishi Eclipse 1997-1999 II
+* source:	https://sketchfab.com/3d-models/mitsubishi-eclipse-1997-1999-ii-c6372726e7e6403a84132e1fba13ce49
+* author:	szymonpasterczyk734 (https://sketchfab.com/szymonpasterczyk734)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Mitsubishi Eclipse 1997-1999 II" (https://sketchfab.com/3d-models/mitsubishi-eclipse-1997-1999-ii-c6372726e7e6403a84132e1fba13ce49) by szymonpasterczyk734 (https://sketchfab.com/szymonpasterczyk734) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

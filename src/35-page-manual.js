@@ -457,7 +457,10 @@ function pgSettings(){
     </div>
     <div class="note" style="margin-top:var(--s3)">
       每一筆數據都標註了可信度與來源。標示「尚未驗證」的項目代表查無可靠來源，請勿直接照著施工。
-      車輛外觀預覽為比例化 3D 示意模型，不代表毫米級尺寸與實際安裝相容性。</div>
+      車輛外觀預覽以六視圖與原廠尺寸校正，不代表毫米級尺寸與實際安裝相容性。</div>
+    <div class="src">3D 基礎網格：
+      <a href="https://sketchfab.com/3d-models/bmw-e36-coupe-d637326e3fb24c5d910825e714e30f8d" target="_blank" rel="noopener">BMW E36 Coupe</a> by Ricy、
+      <a href="https://sketchfab.com/3d-models/mitsubishi-eclipse-1997-1999-ii-c6372726e7e6403a84132e1fba13ce49" target="_blank" rel="noopener">Mitsubishi Eclipse 1997–1999 II</a> by szymonpasterczyk734，依 CC BY 4.0 授權。</div>
   </div>
   <div class="card">
     <h3 class="t-card">重置</h3>

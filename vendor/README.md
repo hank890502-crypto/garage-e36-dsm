@@ -1,6 +1,6 @@
 # Vehicle 3D runtime
 
-The vehicle preview uses Three.js r184 and OrbitControls, bundled locally so the
+The vehicle preview uses Three.js r184, OrbitControls, and GLTFLoader, bundled locally so the
 GitHub Pages build does not depend on a CDN.
 
 Source: https://github.com/mrdoob/three.js/releases/tag/r184

@@ -21,6 +21,22 @@
 `AIMG` 中的車身與輪圈素材為 AI 生成的示意圖，非原廠圖片或實拍照片，
 也不是精確的原廠 Style 復刻。僅供外觀方向參考。
 
+## 3D 車輛模型
+
+下列基礎網格依 Creative Commons Attribution 4.0（CC BY 4.0）授權使用，
+並在本專案中重新調整材質、比例、零件顯示與互動功能：
+
+| 車輛 | 作品與作者 | 原始來源 |
+|---|---|---|
+| BMW E36 Coupe | “BMW E36 Coupe” by Ricy | https://sketchfab.com/3d-models/bmw-e36-coupe-d637326e3fb24c5d910825e714e30f8d |
+| Mitsubishi Eclipse 1997–1999 II | “Mitsubishi Eclipse 1997–1999 II” by szymonpasterczyk734 | https://sketchfab.com/3d-models/mitsubishi-eclipse-1997-1999-ii-c6372726e7e6403a84132e1fba13ce49 |
+
+授權全文：https://creativecommons.org/licenses/by/4.0/
+
+模型隨附授權資料位於 `assets/models/e36/license.txt` 與
+`assets/models/eclipse/license.txt`。照片參考與六視圖製作紀錄見
+`docs/vehicle-model-references.md`。
+
 ## 油價資料
 
 來自政府資料開放平臺「中油主產品牌價」（台灣中油 openData），屬政府開放資料。
