@@ -2787,7 +2787,24 @@ function render(){
     : '';
 
   const fn = PAGES[key] || PAGES['overview'];
-  $('#view').innerHTML = `<div class="wrap">${fn()}</div>`;
+  /* 錯誤邊界：任何一頁炸掉都不該變成整片白，要把錯誤講出來並留一條退路 */
+  try{
+    $('#view').innerHTML = `<div class="wrap">${fn()}</div>`;
+  }catch(err){
+    console.error('[render]', key, err);
+    $('#view').innerHTML = `<div class="wrap"><div class="card">
+      <h3 class="t-card" style="color:var(--red)">這一頁載入失敗</h3>
+      <p class="t-cap" style="margin:var(--s2) 0 0">頁面：<code>${esc(key)}</code></p>
+      <div class="note r" style="margin-top:var(--s2)"><b>${esc(err&&err.message||String(err))}</b></div>
+      <details class="dd" style="margin-top:var(--s2)"><summary class="mut">技術細節</summary>
+        <div class="in"><pre style="font-size:12px;white-space:pre-wrap;overflow-x:auto">${esc(err&&err.stack||'')}</pre></div></details>
+      <div class="note" style="margin-top:var(--s2)">多半是舊版存下來的車輛資料缺了新欄位。
+        先「匯出備份」保住資料，再用下面的按鈕修補，通常就會好。</div>
+      <div class="btnrow" style="margin-top:var(--s3)">
+        <button class="btn" onclick="exportJSON()">匯出備份</button>
+        <button class="btn pri" onclick="repairDB()">修補資料</button>
+      </div></div></div>`;
+  }
   if(key==='build/design') afterDesign();
   if(key==='lap/timer') afterLapTimer();
   lapLeave(key);          // 離開計時頁時停掉畫面更新；GPS 與計時本身會繼續
@@ -2844,6 +2861,25 @@ function storageSnack(){
   if($('#snack').childElementCount) return;
   snack('ls', `<b>資料只存在這個分頁</b><br>目前無法寫入瀏覽器本機儲存，關掉視窗資料就會消失。`,
     `<button class="btn sm pri" onclick="exportJSON()">立即備份</button>`);
+}
+
+/* 把舊版存下來的車輛補上新欄位，避免缺欄位造成整頁炸掉 */
+function repairDB(){
+  const blank = blankCar();
+  let n = 0;
+  DB.tracks = DB.tracks || [];
+  (DB.cars||[]).forEach(c=>{
+    Object.keys(blank).forEach(k=>{
+      if(k==='id') return;
+      if(c[k]===undefined){ c[k] = structuredClone(blank[k]); n++; }
+    });
+    c.build = Object.assign(structuredClone(blank.build), c.build||{});
+    ['parts','logs','plans','project'].forEach(k=>{ if(!Array.isArray(c[k])) c[k]=[]; });
+    if(!c.plat) c.plat = 'e36';
+  });
+  saveDB();
+  toast(n ? `已補上 ${n} 個缺少的欄位` : '資料檢查完成');
+  location.hash = '#overview'; render();
 }
 
 /* ===== 31-carsvg.js ===== */
