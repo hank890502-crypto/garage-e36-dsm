@@ -531,11 +531,6 @@ code{font-family:var(--mono);font-size:13.5px;background:var(--fill);padding:2px
 .hud-unit span,.hud-unit i{display:block;font-size:7px;line-height:1.3;color:color-mix(in srgb,var(--hud) 82%,#fff);font-style:normal}
 .hud-unit b{display:block;font-size:11px;line-height:1.35;color:#F3FEFF;font-weight:700}
 .hud-unit i{position:absolute;right:5px;bottom:4px;color:#8DEB9B;writing-mode:vertical-rl}
-.hud-reticle{position:absolute;left:50%;top:50%;width:60px;height:60px;transform:translate(-50%,-44%);border:1px solid color-mix(in srgb,var(--hud) 48%,transparent);border-radius:50%;opacity:.64}
-.hud-reticle::before,.hud-reticle::after{content:'';position:absolute;background:color-mix(in srgb,var(--hud) 70%,transparent)}
-.hud-reticle::before{left:50%;top:-12px;bottom:-12px;width:1px}
-.hud-reticle::after{top:50%;left:-12px;right:-12px;height:1px}
-.hud-reticle i{position:absolute;inset:17px;border:1px solid var(--signal);transform:rotate(45deg);box-shadow:0 0 9px color-mix(in srgb,var(--signal) 40%,transparent)}
 .hud-telemetry{position:absolute;right:12px;bottom:11px;display:flex;gap:4px}
 .hud-telemetry>div{position:relative;min-width:82px;padding:5px 8px 5px 10px;background:rgba(6,16,19,.84);border-left:3px solid var(--hud);color:#EBFCFF;clip-path:polygon(7px 0,100% 0,100% 100%,0 100%,0 7px)}
 .hud-telemetry small{display:block;color:#70C9D6;font-size:7px;line-height:1}
@@ -715,8 +710,6 @@ mark{border-radius:0;background:rgba(240,172,56,.38)}
   .hud-unit{right:8px;top:7px;min-width:116px;padding:4px 19px 4px 7px}
   .hud-unit b{font-size:9px}
   .hud-unit span,.hud-unit i{font-size:6px}
-  .hud-reticle{width:38px;height:38px}
-  .hud-reticle i{inset:11px}
   .hud-telemetry{display:none}
   .overview-hero .summary{padding-top:25px}
   .overview-hero .summary::after{width:42px}

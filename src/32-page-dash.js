@@ -95,7 +95,6 @@ function heroHud(c){
   const alerts = maintStatus(c).filter(x=>x.st==='over'||x.st==='due').length;
   return `<div class="machine-hud" aria-hidden="true">
     <div class="hud-unit"><span>MACHINE UNIT</span><b>${esc(machineUnit(c))}</b><i>LINK ACTIVE</i></div>
-    <div class="hud-reticle"><i></i></div>
     <div class="hud-telemetry">
       <div><small>ODO</small><b>${nf(c.km)}</b><span>KM</span></div>
       <div><small>ECO</small><b>${eco?p1(eco.kml):'—'}</b><span>KM/L</span></div>
