@@ -4,7 +4,7 @@
 
 打開就能用，不需要伺服器、不需要帳號、不需要網路。所有資料存在瀏覽器本機。
 
-**線上版：** https://USERNAME.github.io/REPO/
+**線上版：** https://hank890502-crypto.github.io/garage-e36-dsm/
 
 ## 功能
 
