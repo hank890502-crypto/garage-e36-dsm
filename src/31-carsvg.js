@@ -52,11 +52,11 @@ function carPhoto(b, opt={}){
   /* 鋁圈圖：資產尺寸 420、鋁圈半徑 199.1 → 半寬比 */
   const wm = WHEEL_META[wid] || {rim:199.1, size:420};
   const imgHalf = rimR * (wm.size/2) / wm.rim;
-  const wheelImg = (cx) => `<img src="${AIMG['wheel-'+wid]}" alt="" style="
+  const wheelImg = (cx) => `<img class="cv-wheel" src="${AIMG['wheel-'+wid]}" alt="" style="
       left:${pct(cx-imgHalf,VW)};top:${pct(wcy-imgHalf,VH)};
       width:${pct(imgHalf*2,VW)};height:auto;
       filter:${fin.br?`brightness(${fin.br})`:'none'}">
-    ${fin.mul==='#ffffff'?'':`<div class="cvw" style="
+    ${fin.mul==='#ffffff'?'':`<div class="cvw cv-wheel-shade" style="
       left:${pct(cx-imgHalf,VW)};top:${pct(wcy-imgHalf,VH)};
       width:${pct(imgHalf*2,VW)};height:${pct(imgHalf*2,VH)};
       -webkit-mask-image:url(${AIMG['wheel-'+wid]});mask-image:url(${AIMG['wheel-'+wid]});
@@ -77,7 +77,7 @@ function carPhoto(b, opt={}){
       fill="none" stroke="#0e1013" stroke-width="${(tyreR-rimR).toFixed(1)}"/>
     <circle cx="${cx}" cy="${wcy}" r="${(tyreR-0.6).toFixed(1)}" fill="none" stroke="#2b3037" stroke-width="1.1" opacity=".75"/>`;
 
-  const bg = `<svg class="cvl" viewBox="0 0 ${VW} ${VH}" preserveAspectRatio="none">
+  const bg = `<svg class="cvl cv-bg" viewBox="0 0 ${VW} ${VH}" preserveAspectRatio="none">
     <defs><radialGradient id="gs${u}" cx=".5" cy=".5" r=".5">
       <stop offset="0" stop-color="#000" stop-opacity=".30"/><stop offset="1" stop-color="#000" stop-opacity="0"/>
     </radialGradient></defs>
@@ -95,7 +95,7 @@ function carPhoto(b, opt={}){
   const box = `left:${pct(M.box[0],VW)};top:${pct(M.box[1],VH)};width:${pct(M.box[2],VW)};height:${pct(M.box[3],VH)}`;
   const tintOp = ((+b.tint||0)/100*0.82).toFixed(3);
 
-  const body = `<div class="cvl" style="transform:translateY(${pct(dy,VH)})">
+  const body = `<div class="cvl cv-body-layer" style="transform:translate3d(0,${pct(dy,VH)},26px)">
     <div class="cvbody" style="position:absolute;${box}">
       <img src="${AIMG['body-'+bodyId]}" alt="${bodyId.endsWith('2g')?'Mitsubishi Eclipse 2G':'BMW E36'} 側視預覽"
            style="position:absolute;inset:0;width:100%;height:100%">
@@ -107,7 +107,37 @@ function carPhoto(b, opt={}){
     ${aeroSVG(b, M, paint.hex, u)}
   </div>`;
 
-  return `<div class="cv">${bg}${wheelImg(AXF)}${wheelImg(AXR)}${body}</div>`;
+  return `<div class="cv depth-cv">${bg}${wheelImg(AXF)}${wheelImg(AXR)}${body}<div class="cv-light"></div></div>`;
+}
+
+/* 同一展示台內的 A/B 圖層共用視角，避免比較線兩側產生位置差。 */
+function afterCarScenes(){
+  const finePointer = matchMedia('(hover:hover) and (pointer:fine)').matches;
+  const reduceMotion = matchMedia('(prefers-reduced-motion:reduce)').matches;
+
+  $$('.stage').forEach(stage=>{
+    const cars = $$('.depth-cv',stage);
+    if(!cars.length) return;
+    stage.classList.add('depth-stage');
+    if(!finePointer || reduceMotion) return;
+
+    const setVar = (name,value)=>cars.forEach(cv=>cv.style.setProperty(name,value));
+    stage.onpointermove = e=>{
+      const r = stage.getBoundingClientRect();
+      const x = Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
+      const y = Math.max(0,Math.min(1,(e.clientY-r.top)/r.height));
+      setVar('--tilt-x',`${((.5-y)*2.8).toFixed(2)}deg`);
+      setVar('--tilt-y',`${((x-.5)*4.8).toFixed(2)}deg`);
+      setVar('--shine-x',`${(28+x*44).toFixed(1)}%`);
+      setVar('--shine-y',`${(18+y*27).toFixed(1)}%`);
+    };
+    stage.onpointerleave = ()=>{
+      setVar('--tilt-x','0deg');
+      setVar('--tilt-y','0deg');
+      setVar('--shine-x','50%');
+      setVar('--shine-y','28%');
+    };
+  });
 }
 
 /* ---------------- 空力套件：貼合該車身的實際輪廓 ---------------- */

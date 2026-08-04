@@ -31,7 +31,7 @@ function pgDesign(){
     <div class="stack">
       <div class="stage crop ab" id="stage">
         ${AB ? `<div>${carPhoto(stock,{bodyId:c.bodyId,uid:'ab0'})}</div>
-          <div class="after" id="abAfter" style="width:${ABPOS}%">${carPhoto(b,{bodyId:c.bodyId,uid:'ab1'})}</div>
+          <div class="after" id="abAfter" style="--ab-pos:${ABPOS}%">${carPhoto(b,{bodyId:c.bodyId,uid:'ab1'})}</div>
           <div class="abh" id="abH" style="left:${ABPOS}%"></div>
           <div class="abl" style="left:14px">改裝後</div><div class="abl" style="right:14px">原廠</div>`
         : carPhoto(b,{bodyId:c.bodyId,uid:'st'})}
@@ -332,7 +332,7 @@ function afterDesign(){
     const r = st.getBoundingClientRect();
     const x = ((e.touches?e.touches[0].clientX:e.clientX) - r.left)/r.width*100;
     ABPOS = Math.max(2, Math.min(98, x));
-    h.style.left = ABPOS+'%'; af.style.width = ABPOS+'%';
+    h.style.left = ABPOS+'%'; af.style.setProperty('--ab-pos',ABPOS+'%');
   };
   h.addEventListener('mousedown', e=>{drag=true; e.preventDefault();});
   h.addEventListener('touchstart', ()=>{drag=true;}, {passive:true});

@@ -306,17 +306,36 @@ table.tb tr:last-child td{border-bottom:0}
 .rt{text-align:right}
 
 /* ---------- 車輛預覽 ---------- */
-.stage{background:var(--stage);border-radius:var(--r);overflow:hidden;position:relative}
-.stage.crop{aspect-ratio:1000/352}
-.stage.crop .cv{position:absolute;left:0;right:0;top:-10.5%}
-.cv{position:relative;width:100%;aspect-ratio:1000/462;overflow:hidden}
+.stage{background:var(--stage);border-radius:var(--r);overflow:hidden;position:relative;min-width:0;max-width:100%}
+.stage.crop{aspect-ratio:16/7}
+.stage.crop .cv{position:absolute;left:0;right:0;top:-2.5%}
+.cv{position:relative;width:100%;max-width:100%;aspect-ratio:1000/462;overflow:hidden}
 .cv img{position:absolute;display:block}
 .cvl{position:absolute;inset:0;width:100%;height:100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;pointer-events:none}
 .cvw{position:absolute;pointer-events:none;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}
 .cvbody{isolation:isolate}
+.depth-stage{perspective:1100px;isolation:isolate}
+.depth-cv{
+  --tilt-x:0deg;--tilt-y:0deg;--shine-x:50%;--shine-y:28%;
+  transform:perspective(1100px) rotateX(var(--tilt-x)) rotateY(var(--tilt-y));
+  transform-origin:50% 64%;transform-style:preserve-3d;
+  transition:transform .22s ease,filter .22s ease;will-change:transform
+}
+.cv-bg{transform:translateZ(-24px) scale(1.025);transform-origin:50% 64%}
+.cv-wheel,.cv-wheel-shade{transform:translateZ(12px)}
+.cv-body-layer{transform-style:preserve-3d}
+.cv-light{
+  position:absolute;z-index:8;inset:8% 5% 11%;pointer-events:none;transform:translateZ(34px);
+  background:radial-gradient(circle at var(--shine-x) var(--shine-y),rgba(255,255,255,.26),rgba(255,255,255,.08) 13%,transparent 38%);
+  mix-blend-mode:screen;opacity:.36;transition:opacity .22s ease
+}
+.depth-stage:hover .depth-cv{filter:drop-shadow(0 13px 10px rgba(0,0,0,.16))}
+@media(prefers-reduced-motion:reduce){
+  .depth-cv,.cv-light{transition:none}
+}
 @supports not (aspect-ratio:1/1){.cv{height:0;padding-bottom:46.2%}}
 .ab{position:relative}
-.ab .after{position:absolute;inset:0;overflow:hidden}
+.ab .after{position:absolute;inset:0;overflow:hidden;clip-path:inset(0 calc(100% - var(--ab-pos,50%)) 0 0)}
 .abh{position:absolute;top:0;bottom:0;width:2px;background:#fff;cursor:ew-resize;z-index:5;box-shadow:0 0 8px rgba(0,0,0,.35)}
 .abh::after{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:34px;height:34px;border-radius:50%;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.3)}
 .abl{position:absolute;bottom:12px;font-size:12px;color:#fff;background:rgba(0,0,0,.5);padding:4px 10px;border-radius:99px;z-index:4;backdrop-filter:blur(6px)}
@@ -635,6 +654,7 @@ mark{border-radius:0;background:rgba(240,172,56,.38)}
   #tabs{padding:12px var(--s2) 0}
   #view{padding:var(--s2) var(--s2) var(--s4)}
   .card{padding:var(--s2);border-radius:var(--r)}
+  .overview-hero{padding:0}
   .summary{grid-template-columns:repeat(2,minmax(0,1fr))}
   .cols{gap:var(--s2)}
   .modal{max-width:100%;max-height:92vh;border-radius:10px}
@@ -3153,6 +3173,7 @@ function render(){
         <button class="btn pri" onclick="repairDB()">修補資料</button>
       </div></div></div>`;
   }
+  afterCarScenes();
   if(key==='build/design') afterDesign();
   if(key==='lap/timer') afterLapTimer();
   lapLeave(key);          // 離開計時頁時停掉畫面更新；GPS 與計時本身會繼續
@@ -3291,11 +3312,11 @@ function carPhoto(b, opt={}){
   /* 鋁圈圖：資產尺寸 420、鋁圈半徑 199.1 → 半寬比 */
   const wm = WHEEL_META[wid] || {rim:199.1, size:420};
   const imgHalf = rimR * (wm.size/2) / wm.rim;
-  const wheelImg = (cx) => `<img src="${AIMG['wheel-'+wid]}" alt="" style="
+  const wheelImg = (cx) => `<img class="cv-wheel" src="${AIMG['wheel-'+wid]}" alt="" style="
       left:${pct(cx-imgHalf,VW)};top:${pct(wcy-imgHalf,VH)};
       width:${pct(imgHalf*2,VW)};height:auto;
       filter:${fin.br?`brightness(${fin.br})`:'none'}">
-    ${fin.mul==='#ffffff'?'':`<div class="cvw" style="
+    ${fin.mul==='#ffffff'?'':`<div class="cvw cv-wheel-shade" style="
       left:${pct(cx-imgHalf,VW)};top:${pct(wcy-imgHalf,VH)};
       width:${pct(imgHalf*2,VW)};height:${pct(imgHalf*2,VH)};
       -webkit-mask-image:url(${AIMG['wheel-'+wid]});mask-image:url(${AIMG['wheel-'+wid]});
@@ -3316,7 +3337,7 @@ function carPhoto(b, opt={}){
       fill="none" stroke="#0e1013" stroke-width="${(tyreR-rimR).toFixed(1)}"/>
     <circle cx="${cx}" cy="${wcy}" r="${(tyreR-0.6).toFixed(1)}" fill="none" stroke="#2b3037" stroke-width="1.1" opacity=".75"/>`;
 
-  const bg = `<svg class="cvl" viewBox="0 0 ${VW} ${VH}" preserveAspectRatio="none">
+  const bg = `<svg class="cvl cv-bg" viewBox="0 0 ${VW} ${VH}" preserveAspectRatio="none">
     <defs><radialGradient id="gs${u}" cx=".5" cy=".5" r=".5">
       <stop offset="0" stop-color="#000" stop-opacity=".30"/><stop offset="1" stop-color="#000" stop-opacity="0"/>
     </radialGradient></defs>
@@ -3334,7 +3355,7 @@ function carPhoto(b, opt={}){
   const box = `left:${pct(M.box[0],VW)};top:${pct(M.box[1],VH)};width:${pct(M.box[2],VW)};height:${pct(M.box[3],VH)}`;
   const tintOp = ((+b.tint||0)/100*0.82).toFixed(3);
 
-  const body = `<div class="cvl" style="transform:translateY(${pct(dy,VH)})">
+  const body = `<div class="cvl cv-body-layer" style="transform:translate3d(0,${pct(dy,VH)},26px)">
     <div class="cvbody" style="position:absolute;${box}">
       <img src="${AIMG['body-'+bodyId]}" alt="${bodyId.endsWith('2g')?'Mitsubishi Eclipse 2G':'BMW E36'} 側視預覽"
            style="position:absolute;inset:0;width:100%;height:100%">
@@ -3346,7 +3367,37 @@ function carPhoto(b, opt={}){
     ${aeroSVG(b, M, paint.hex, u)}
   </div>`;
 
-  return `<div class="cv">${bg}${wheelImg(AXF)}${wheelImg(AXR)}${body}</div>`;
+  return `<div class="cv depth-cv">${bg}${wheelImg(AXF)}${wheelImg(AXR)}${body}<div class="cv-light"></div></div>`;
+}
+
+/* 同一展示台內的 A/B 圖層共用視角，避免比較線兩側產生位置差。 */
+function afterCarScenes(){
+  const finePointer = matchMedia('(hover:hover) and (pointer:fine)').matches;
+  const reduceMotion = matchMedia('(prefers-reduced-motion:reduce)').matches;
+
+  $$('.stage').forEach(stage=>{
+    const cars = $$('.depth-cv',stage);
+    if(!cars.length) return;
+    stage.classList.add('depth-stage');
+    if(!finePointer || reduceMotion) return;
+
+    const setVar = (name,value)=>cars.forEach(cv=>cv.style.setProperty(name,value));
+    stage.onpointermove = e=>{
+      const r = stage.getBoundingClientRect();
+      const x = Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
+      const y = Math.max(0,Math.min(1,(e.clientY-r.top)/r.height));
+      setVar('--tilt-x',`${((.5-y)*2.8).toFixed(2)}deg`);
+      setVar('--tilt-y',`${((x-.5)*4.8).toFixed(2)}deg`);
+      setVar('--shine-x',`${(28+x*44).toFixed(1)}%`);
+      setVar('--shine-y',`${(18+y*27).toFixed(1)}%`);
+    };
+    stage.onpointerleave = ()=>{
+      setVar('--tilt-x','0deg');
+      setVar('--tilt-y','0deg');
+      setVar('--shine-x','50%');
+      setVar('--shine-y','28%');
+    };
+  });
 }
 
 /* ---------------- 空力套件：貼合該車身的實際輪廓 ---------------- */
@@ -3930,7 +3981,7 @@ function pgDesign(){
     <div class="stack">
       <div class="stage crop ab" id="stage">
         ${AB ? `<div>${carPhoto(stock,{bodyId:c.bodyId,uid:'ab0'})}</div>
-          <div class="after" id="abAfter" style="width:${ABPOS}%">${carPhoto(b,{bodyId:c.bodyId,uid:'ab1'})}</div>
+          <div class="after" id="abAfter" style="--ab-pos:${ABPOS}%">${carPhoto(b,{bodyId:c.bodyId,uid:'ab1'})}</div>
           <div class="abh" id="abH" style="left:${ABPOS}%"></div>
           <div class="abl" style="left:14px">改裝後</div><div class="abl" style="right:14px">原廠</div>`
         : carPhoto(b,{bodyId:c.bodyId,uid:'st'})}
@@ -4231,7 +4282,7 @@ function afterDesign(){
     const r = st.getBoundingClientRect();
     const x = ((e.touches?e.touches[0].clientX:e.clientX) - r.left)/r.width*100;
     ABPOS = Math.max(2, Math.min(98, x));
-    h.style.left = ABPOS+'%'; af.style.width = ABPOS+'%';
+    h.style.left = ABPOS+'%'; af.style.setProperty('--ab-pos',ABPOS+'%');
   };
   h.addEventListener('mousedown', e=>{drag=true; e.preventDefault();});
   h.addEventListener('touchstart', ()=>{drag=true;}, {passive:true});

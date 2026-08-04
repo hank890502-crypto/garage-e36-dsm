@@ -210,6 +210,7 @@ function render(){
         <button class="btn pri" onclick="repairDB()">修補資料</button>
       </div></div></div>`;
   }
+  afterCarScenes();
   if(key==='build/design') afterDesign();
   if(key==='lap/timer') afterLapTimer();
   lapLeave(key);          // 離開計時頁時停掉畫面更新；GPS 與計時本身會繼續
