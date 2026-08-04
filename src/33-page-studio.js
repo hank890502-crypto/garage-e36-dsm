@@ -16,6 +16,10 @@ const DPARTS = [
 function pgDesign(){
   const c = car();
   if(!c) return needCar('設計預覽需要先建立車輛 — 相容性會依你的年份、引擎與車身型式計算');
+  if(!c.bodyId || !BODY_META[c.bodyId]) return `<div class="card"><div class="empty">${ic('car',44)}
+    <p><b>還沒有選車身型式</b><br><span class="t-cap">設計預覽要知道是哪一種車身才畫得出來。
+    ${esc(platName(platOf(c)))} 目前有：${bodiesOf(platOf(c)).filter(x=>BODY_META[x.id]).map(x=>esc(x.name)).join('、')}</span></p>
+    <button class="btn pri" onclick="editCar('${c.id}')">去選車身型式</button></div></div>`;
   const b = c.build;
   const stock = {...b, wheel:'st42', finish:'silver', size:15, tireW:205, tireAR:60, drop:0,
                  caliper:'stock', tint:0, lip:false, skirt:false, wing:'none',

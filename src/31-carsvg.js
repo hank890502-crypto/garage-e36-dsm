@@ -35,7 +35,8 @@ function wheelDims(b, archR){
 const pct = (v,tot) => (v/tot*100).toFixed(4)+'%';
 
 function carPhoto(b, opt={}){
-  const bodyId = (opt.bodyId && BODY_META[opt.bodyId]) ? opt.bodyId : 'coupe';
+  const bodyId = (opt.bodyId && BODY_META[opt.bodyId]) ? opt.bodyId
+    : (String(opt.bodyId||'').endsWith('2g') ? 'coupe2g' : 'coupe');
   const M = BODY_META[bodyId];
   const paint = PAINTS.find(p=>p.id===b.paint) || PAINTS[0];
   const fin   = WHEEL_FINISHES.find(w=>w.id===b.finish) || WHEEL_FINISHES[0];

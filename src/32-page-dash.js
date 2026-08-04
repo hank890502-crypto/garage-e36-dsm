@@ -75,16 +75,17 @@ function pgOverview(){
   </div>`;
 }
 
-/* 車輛主視覺。只有 E36 有合成素材，其他平台顯示文字卡而不是拿別台車的圖硬湊 */
+/* 車輛主視覺。有對應素材就直接算圖，沒有才退回文字卡（不拿別台車的圖硬湊） */
 function heroArt(c, uid){
-  if(isE36(c)) return `<div class="stage crop">${carPhoto(c.build,{bodyId:c.bodyId,uid})}</div>`;
+  if(c.bodyId && BODY_META[c.bodyId]) return `<div class="stage crop">${carPhoto(c.build,{bodyId:c.bodyId,uid})}</div>`;
   const m = mdlById(c.modelId), b = bodyById(c.bodyId), e = carEngine(c);
   return `<div class="stage" style="aspect-ratio:1000/352;display:flex;flex-direction:column;
       align-items:center;justify-content:center;gap:6px;text-align:center;padding:var(--s3)">
     <div style="font-size:13px;letter-spacing:.14em;color:var(--tx3)">${esc(platName(platOf(c)))}</div>
-    <div style="font-size:26px;font-weight:600;letter-spacing:-.02em">${esc(m?m.name:'Eclipse')}${m&&m.drive?` <span style="color:var(--tx2);font-size:18px">${m.drive}</span>`:''}</div>
+    <div style="font-size:26px;font-weight:600;letter-spacing:-.02em">${esc(m?m.name:'—')}${m&&m.drive?` <span style="color:var(--tx2);font-size:18px">${m.drive}</span>`:''}</div>
     <div class="t-cap">${esc([c.year, b&&b.name, e&&e.name].filter(Boolean).join(' · '))}</div>
-    <div class="t-cap" style="color:var(--tx3)">這個平台還沒有車身合成素材，改裝預覽暫時只支援 E36</div>
+    <div class="t-cap" style="color:var(--orange)">${c.bodyId?'這個車身型式還沒有合成素材':'還沒有選車身型式，選了才畫得出車'}</div>
+    ${!c.bodyId?`<button class="btn sm" style="margin-top:8px" onclick="editCar('${c.id}')">去選車身型式</button>`:''}
   </div>`;
 }
 
