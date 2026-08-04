@@ -85,9 +85,28 @@ function pgOverview(){
   </div>`;
 }
 
+function machineUnit(c){
+  const m = mdlById(c.modelId);
+  const frame = platOf(c)==='dsm2g' ? 'DSM-2G' : 'E36';
+  return `${frame} / ${m?m.name:'UNIT'}`;
+}
+function heroHud(c){
+  const eco = fuelStats(c).latest;
+  const alerts = maintStatus(c).filter(x=>x.st==='over'||x.st==='due').length;
+  return `<div class="machine-hud" aria-hidden="true">
+    <div class="hud-unit"><span>MACHINE UNIT</span><b>${esc(machineUnit(c))}</b><i>LINK ACTIVE</i></div>
+    <div class="hud-reticle"><i></i></div>
+    <div class="hud-telemetry">
+      <div><small>ODO</small><b>${nf(c.km)}</b><span>KM</span></div>
+      <div><small>ECO</small><b>${eco?p1(eco.kml):'—'}</b><span>KM/L</span></div>
+      <div class="${alerts?'warn':'ok'}"><small>ALERT</small><b>${String(alerts).padStart(2,'0')}</b><span>${alerts?'CHECK':'CLEAR'}</span></div>
+    </div>
+  </div>`;
+}
+
 /* 車輛主視覺。有對應素材就直接算圖，沒有才退回文字卡（不拿別台車的圖硬湊） */
 function heroArt(c, uid){
-  if(c.bodyId && BODY_META[c.bodyId]) return `<div class="stage crop">${carPhoto(c.build,{bodyId:c.bodyId,uid})}</div>`;
+  if(c.bodyId && BODY_META[c.bodyId]) return `<div class="stage crop mech-stage">${carPhoto(c.build,{bodyId:c.bodyId,uid})}${heroHud(c)}</div>`;
   const m = mdlById(c.modelId), b = bodyById(c.bodyId), e = carEngine(c);
   return `<div class="stage" style="aspect-ratio:1000/352;display:flex;flex-direction:column;
       align-items:center;justify-content:center;gap:6px;text-align:center;padding:var(--s3)">
