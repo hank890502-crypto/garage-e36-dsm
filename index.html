@@ -308,32 +308,20 @@ table.tb tr:last-child td{border-bottom:0}
 /* ---------- 車輛預覽 ---------- */
 .stage{background:var(--stage);border-radius:var(--r);overflow:hidden;position:relative;min-width:0;max-width:100%}
 .stage.crop{aspect-ratio:16/7}
-.stage.crop .cv{position:absolute;left:0;right:0;top:-2.5%}
-.cv{position:relative;width:100%;max-width:100%;aspect-ratio:1000/462;overflow:hidden}
-.cv img{position:absolute;display:block}
-.cvl{position:absolute;inset:0;width:100%;height:100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;pointer-events:none}
-.cvw{position:absolute;pointer-events:none;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}
-.cvbody{isolation:isolate}
-.depth-stage{perspective:1100px;isolation:isolate}
-.depth-cv{
-  --tilt-x:0deg;--tilt-y:0deg;--shine-x:50%;--shine-y:28%;
-  transform:perspective(1100px) rotateX(var(--tilt-x)) rotateY(var(--tilt-y));
-  transform-origin:50% 64%;transform-style:preserve-3d;
-  transition:transform .22s ease,filter .22s ease;will-change:transform
-}
-.cv-bg{transform:translateZ(-24px) scale(1.025);transform-origin:50% 64%}
-.cv-wheel,.cv-wheel-shade{transform:translateZ(12px)}
-.cv-body-layer{transform-style:preserve-3d}
-.cv-light{
-  position:absolute;z-index:8;inset:8% 5% 11%;pointer-events:none;transform:translateZ(34px);
-  background:radial-gradient(circle at var(--shine-x) var(--shine-y),rgba(255,255,255,.26),rgba(255,255,255,.08) 13%,transparent 38%);
-  mix-blend-mode:screen;opacity:.36;transition:opacity .22s ease
-}
-.depth-stage:hover .depth-cv{filter:drop-shadow(0 13px 10px rgba(0,0,0,.16))}
-@media(prefers-reduced-motion:reduce){
-  .depth-cv,.cv-light{transition:none}
-}
-@supports not (aspect-ratio:1/1){.cv{height:0;padding-bottom:46.2%}}
+.car3d{position:absolute;inset:0;z-index:1;overflow:hidden;cursor:grab;touch-action:none;background:#dfe4de}
+[data-theme=dark] .car3d{background:#101511}
+.car3d:active{cursor:grabbing}
+.car3d canvas{position:absolute;inset:0;width:100%;height:100%;display:block;outline:0}
+.car3d-load{position:absolute;z-index:2;left:50%;top:53%;transform:translate(-50%,-50%);display:flex;gap:4px;pointer-events:none}
+.car3d-load i{width:4px;height:18px;background:var(--tech);animation:car3d-pulse .8s ease-in-out infinite}
+.car3d-load i:nth-child(2),.car3d-load i:nth-child(4){animation-delay:.12s}.car3d-load i:nth-child(3){animation-delay:.24s}
+.car3d.ready .car3d-load{display:none}.car3d.failed .car3d-load i{background:var(--red);animation:none}
+.car3d-reset{position:absolute;z-index:7;right:11px;top:40px;width:34px;height:34px;padding:0;display:grid;place-items:center;cursor:pointer;
+  color:var(--tech);background:color-mix(in srgb,var(--card) 86%,transparent);border:1px solid color-mix(in srgb,var(--tech) 46%,transparent);border-radius:1px}
+.car3d-reset:hover{background:var(--card);color:var(--blue)}
+.wheel-mini{display:block;width:100%;aspect-ratio:1/1}
+@keyframes car3d-pulse{0%,100%{transform:scaleY(.45);opacity:.4}50%{transform:scaleY(1);opacity:1}}
+@media(prefers-reduced-motion:reduce){.car3d-load i{animation:none}}
 .ab{position:relative}
 .ab .after{position:absolute;inset:0;overflow:hidden;clip-path:inset(0 calc(100% - var(--ab-pos,50%)) 0 0)}
 .abh{position:absolute;top:0;bottom:0;width:2px;background:#fff;cursor:ew-resize;z-index:5;box-shadow:0 0 8px rgba(0,0,0,.35)}
@@ -606,9 +594,9 @@ table.tb th{background:#1A1E1A;color:#C7CEC5;border-bottom:3px solid var(--blue)
 table.tb tbody tr:hover{background:color-mix(in srgb,var(--fill) 68%,transparent)}
 table.tb td{font-variant-numeric:tabular-nums}
 .stage{border-radius:1px;background-color:var(--fill);background-image:linear-gradient(rgba(8,115,140,.10) 1px,transparent 1px),linear-gradient(90deg,rgba(8,115,140,.10) 1px,transparent 1px),var(--stage);background-size:32px 32px,32px 32px,100% 100%}
-.stage::before{content:'VEHICLE SCAN // SIDE PROFILE';position:absolute;z-index:6;left:12px;top:10px;padding:2px 5px;background:color-mix(in srgb,var(--card) 86%,transparent);border-left:3px solid var(--blue);font-family:var(--mono);font-size:9px;line-height:1.4;color:var(--tech);pointer-events:none}
+.stage::before{content:'VEHICLE MODEL // LIVE VIEW';position:absolute;z-index:6;left:12px;top:10px;padding:2px 5px;background:color-mix(in srgb,var(--card) 86%,transparent);border-left:3px solid var(--blue);font-family:var(--mono);font-size:9px;line-height:1.4;color:var(--tech);pointer-events:none}
 .stage::after{content:'';position:absolute;z-index:5;inset:10px;border:1px solid color-mix(in srgb,var(--tech) 36%,transparent);pointer-events:none}
-.stage .cv{z-index:1}
+.stage .car3d{z-index:1}
 .abl{border-radius:1px;background:rgba(16,20,16,.82);font-family:var(--mono);backdrop-filter:none}
 .abh::after{border-radius:1px}
 .sumbar,.pcard{border:1px solid var(--line2);border-radius:2px;box-shadow:var(--shadow)}
@@ -766,6 +754,7 @@ mark{border-radius:0;background:rgba(240,172,56,.38)}
 <div id="toast"></div>
 <div id="modalRoot"></div>
 <input type="file" id="fileImport" accept="application/json,.json" style="display:none">
+<script src="./vendor/car3d-lib.min.js"></script>
 <script>
 /* ===== 05-assets.js ===== */
 /* AI 生成素材（內嵌 base64 WebP）。後製：洋紅溢色抑制、紅色尾燈修復、示意輪抹除、
@@ -1047,7 +1036,7 @@ const FITMENT_GUIDE = [
   {car:'m3',   size:17, w:10,  et:25, tire:'275/35R17', lvl:'wide', need:['寬體／暴龜'], note:'賽道極限'},
 ];
 
-/* 輪圈樣式 — 對應 AI 生成的鋁圈素材。
+/* 輪圈樣式 — 對應 3D 輪框幾何與零件庫縮圖。
    ⚠ 這些是「類別近似」的示意圖，不是精確的原廠 Style 復刻。 */
 const WHEEL_STYLES = [
   {id:'st5',   name:'雙輻 Style 5',    cat:'五雙輻'},
@@ -3024,6 +3013,7 @@ const IC = {
   filter:'M4 6h16M7 12h10M10 18h4',
   check:'M4.5 12.5 9.5 17.5 19.5 6.5',
   circle:'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
+  orbit:'M4.9 6.8A8.5 8.5 0 1 1 3.5 14M4.9 6.8V3m0 3.8h3.8M12 8v4l2.7 2',
 };
 const ic = (n,s=20)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${IC[n]||IC.circle}"/></svg>`;
 
@@ -3131,6 +3121,7 @@ const PAGES = {
 };
 
 function render(){
+  disposeCarScenes();
   const sec = NAV.find(n=>n.id===SEC);
   const key = TAB ? `${SEC}/${TAB}` : SEC;
   $('#top').dataset.screen = `G-SYS // ${sec.id.toUpperCase()} / ${TAB ? TAB.toUpperCase() : 'STATUS'}`;
@@ -3257,259 +3248,421 @@ function repairDB(){
   location.hash = '#overview'; render();
 }
 
-/* ===== 31-carsvg.js ===== */
+/* ===== 31-car3d.js ===== */
 /* ==========================================================================
-   E36 外觀預覽 — AI 素材圖層合成
-   座標系：1000 × 462 單位；S = 0.2 px/mm；地面 y=400；前軸 x=218、後軸 x=758
-   圖層順序（由後到前）
-     背景 SVG  地面陰影 → 輪拱內襯 → 煞車碟盤 → 卡鉗 → 輪胎
-     鋁圈 PNG  ×2（依實際胎規縮放，可疊色改變輪圈顏色）
-     車身群組（依降低幅度整體下移）
-        車身 PNG → 車漆疊色(multiply) → 亮色補償(screen) → 車窗隔熱紙
-        空力套件 SVG（貼合該車身的實際下緣輪廓）
+   Vehicle 3D preview
+   Procedural E36 / Eclipse geometry with independent modification parts.
    ========================================================================== */
-const S = 0.2, GND = 400, AXF = 218, AXR = 758, VW = 1000, VH = 462;
-const STOCK_OD = 627;                 // 原廠 205/60R15 外徑 (mm)
-const ARCH_FILL = 2.6;                // 胎外半徑相對輪拱開口的補正（單位）
-const BODY_LIFT = 2.6;                // 原廠車高時車身上提量，讓輪拱留出自然間隙
+const CAR3D_BODY_IDS = new Set(['coupe','sedan','touring','compact','cabrio','coupe2g','spyder2g']);
+const CAR3D_INSTANCES = [];
+const CAR3D_DEFAULT_VIEW = {offset:[-4.95,2.15,4.35], target:[0,.65,0]};
+let CAR3D_VIEW = structuredClone(CAR3D_DEFAULT_VIEW);
+let CAR3D_SYNCING = false;
 
-function shade(hex, amt){
-  const n = parseInt(String(hex).slice(1),16);
-  const f = v => Math.max(0,Math.min(255, Math.round(v + 255*amt)));
-  return '#'+[f((n>>16)&255),f((n>>8)&255),f(n&255)].map(v=>v.toString(16).padStart(2,'0')).join('');
-}
-function lumOf(hex){
-  const n = parseInt(String(hex).slice(1),16);
-  return (((n>>16)&255)*0.299 + ((n>>8)&255)*0.587 + (n&255)*0.114)/255;
-}
+const CAR3D_READY = window.CAR3D_LIB
+  ? Promise.resolve(window.CAR3D_LIB)
+  : Promise.reject(new Error('Three.js bundle is unavailable'));
 
-/* 輪圈幾何：回傳單位座標下的胎外半徑與鋁圈半徑 */
-function wheelDims(b, archR){
-  const t = {w:+b.tireW||205, ar:+b.tireAR||60, rim:+b.size||15};
-  const od = tireOD(t) || STOCK_OD;
-  const tyreR = (archR + ARCH_FILL) * (od/STOCK_OD);
-  const rimR  = tyreR * (t.rim*25.4/od);
-  return {tyreR, rimR, od};
-}
+function hasCar3D(bodyId){ return CAR3D_BODY_IDS.has(bodyId); }
 
-const pct = (v,tot) => (v/tot*100).toFixed(4)+'%';
-
-function carPhoto(b, opt={}){
-  const bodyId = (opt.bodyId && BODY_META[opt.bodyId]) ? opt.bodyId
-    : (String(opt.bodyId||'').endsWith('2g') ? 'coupe2g' : 'coupe');
-  const M = BODY_META[bodyId];
-  const paint = PAINTS.find(p=>p.id===b.paint) || PAINTS[0];
-  const fin   = WHEEL_FINISHES.find(w=>w.id===b.finish) || WHEEL_FINISHES[0];
-  const cal   = CALIPER_COLORS.find(w=>w.id===b.caliper) || CALIPER_COLORS[0];
-  const wid   = (WHEEL_STYLES.concat(ECL_WHEEL_STYLES).find(w=>w.id===b.wheel) || WHEEL_STYLES[0]).id;
-  const u     = opt.uid || 'a';
-
-  const archR = (M.wheels[0].r + M.wheels[1].r)/2;
-  const {tyreR, rimR} = wheelDims(b, archR);
-  const wcy = GND - tyreR;
-  const dy  = (+b.drop||0) * S - BODY_LIFT;
-
-  /* 鋁圈圖：資產尺寸 420、鋁圈半徑 199.1 → 半寬比 */
-  const wm = WHEEL_META[wid] || {rim:199.1, size:420};
-  const imgHalf = rimR * (wm.size/2) / wm.rim;
-  const wheelImg = (cx) => `<img class="cv-wheel" src="${AIMG['wheel-'+wid]}" alt="" style="
-      left:${pct(cx-imgHalf,VW)};top:${pct(wcy-imgHalf,VH)};
-      width:${pct(imgHalf*2,VW)};height:auto;
-      filter:${fin.br?`brightness(${fin.br})`:'none'}">
-    ${fin.mul==='#ffffff'?'':`<div class="cvw cv-wheel-shade" style="
-      left:${pct(cx-imgHalf,VW)};top:${pct(wcy-imgHalf,VH)};
-      width:${pct(imgHalf*2,VW)};height:${pct(imgHalf*2,VH)};
-      -webkit-mask-image:url(${AIMG['wheel-'+wid]});mask-image:url(${AIMG['wheel-'+wid]});
-      -webkit-mask-size:100% 100%;mask-size:100% 100%;
-      background:${fin.mul};mix-blend-mode:multiply"></div>`}`;
-
-  /* 背景 SVG：陰影、輪拱內襯、碟盤、卡鉗、輪胎 */
-  const brake = (cx) => `
-    <circle cx="${cx}" cy="${wcy}" r="${(rimR*0.80).toFixed(1)}" fill="#5a5f66"/>
-    <circle cx="${cx}" cy="${wcy}" r="${(rimR*0.50).toFixed(1)}" fill="#494d54"/>
-    <circle cx="${cx}" cy="${wcy}" r="${(rimR*0.70).toFixed(1)}" fill="none" stroke="#70767f" stroke-width="1" opacity=".55"/>
-    <path d="M ${(cx-rimR*0.79).toFixed(1)} ${(wcy-rimR*0.11).toFixed(1)}
-             A ${(rimR*0.8).toFixed(1)} ${(rimR*0.8).toFixed(1)} 0 0 1 ${(cx-rimR*0.26).toFixed(1)} ${(wcy-rimR*0.76).toFixed(1)}
-             L ${(cx-rimR*0.42).toFixed(1)} ${(wcy-rimR*0.48).toFixed(1)} Z" fill="${cal.hex}"/>
-    <rect x="${(cx-rimR*0.80).toFixed(1)}" y="${(wcy-rimR*0.42).toFixed(1)}"
-          width="${(rimR*0.34).toFixed(1)}" height="${(rimR*0.56).toFixed(1)}" rx="3" fill="${cal.hex}"/>`;
-  const tyre = (cx) => `<circle cx="${cx}" cy="${wcy}" r="${((rimR+tyreR)/2).toFixed(1)}"
-      fill="none" stroke="#0e1013" stroke-width="${(tyreR-rimR).toFixed(1)}"/>
-    <circle cx="${cx}" cy="${wcy}" r="${(tyreR-0.6).toFixed(1)}" fill="none" stroke="#2b3037" stroke-width="1.1" opacity=".75"/>`;
-
-  const bg = `<svg class="cvl cv-bg" viewBox="0 0 ${VW} ${VH}" preserveAspectRatio="none">
-    <defs><radialGradient id="gs${u}" cx=".5" cy=".5" r=".5">
-      <stop offset="0" stop-color="#000" stop-opacity=".30"/><stop offset="1" stop-color="#000" stop-opacity="0"/>
-    </radialGradient></defs>
-    <ellipse cx="500" cy="${GND+12}" rx="430" ry="18" fill="url(#gs${u})"/>
-    <line x1="24" y1="${GND}" x2="976" y2="${GND}" stroke="var(--line2)" stroke-width="1.2"/>
-    <circle cx="${AXF}" cy="${(M.wheels[0].cy+dy).toFixed(1)}" r="${(M.wheels[0].r+13).toFixed(1)}" fill="#101318"/>
-    <circle cx="${AXR}" cy="${(M.wheels[1].cy+dy).toFixed(1)}" r="${(M.wheels[1].r+13).toFixed(1)}" fill="#101318"/>
-    ${brake(AXF)}${brake(AXR)}${tyre(AXF)}${tyre(AXR)}
-  </svg>`;
-
-  /* 車漆疊色 */
-  const L = lumOf(paint.hex);
-  const scr = Math.max(0, Math.min(1,(L-0.55)/0.45))*0.5;
-  const mk = (src) => `-webkit-mask-image:url(${src});mask-image:url(${src});-webkit-mask-size:100% 100%;mask-size:100% 100%`;
-  const box = `left:${pct(M.box[0],VW)};top:${pct(M.box[1],VH)};width:${pct(M.box[2],VW)};height:${pct(M.box[3],VH)}`;
-  const tintOp = ((+b.tint||0)/100*0.82).toFixed(3);
-
-  const body = `<div class="cvl cv-body-layer" style="transform:translate3d(0,${pct(dy,VH)},26px)">
-    <div class="cvbody" style="position:absolute;${box}">
-      <img src="${AIMG['body-'+bodyId]}" alt="${bodyId.endsWith('2g')?'Mitsubishi Eclipse 2G':'BMW E36'} 側視預覽"
-           style="position:absolute;inset:0;width:100%;height:100%">
-      <div class="cvl" style="${mk(AIMG['mask-paint-'+bodyId])};background:${paint.hex};mix-blend-mode:multiply"></div>
-      ${scr>0.01?`<div class="cvl" style="${mk(AIMG['mask-paint-'+bodyId])};background:#fff;opacity:${scr.toFixed(2)};mix-blend-mode:screen"></div>`:''}
-      ${+b.tint?`<div class="cvl" style="${mk(AIMG['mask-glass-'+bodyId])};background:#04070b;opacity:${tintOp}"></div>`:''}
-      ${b.shadow?`<div class="cvl" style="${mk(AIMG['mask-glass-'+bodyId])};background:#0b0d10;opacity:.30;mix-blend-mode:multiply"></div>`:''}
-    </div>
-    ${aeroSVG(b, M, paint.hex, u)}
+function carPhoto(build, opt={}){
+  const bodyId = hasCar3D(opt.bodyId) ? opt.bodyId : (String(opt.bodyId||'').endsWith('2g')?'coupe2g':'coupe');
+  const config = encodeURIComponent(JSON.stringify({
+    bodyId,
+    build:{...blankCar().build,...build},
+    uid:opt.uid||uid(),
+    interactive:opt.interactive!==false,
+  }));
+  const platform = bodyId.endsWith('2g') ? 'Mitsubishi Eclipse 2G' : 'BMW E36';
+  return `<div class="car3d" data-car3d="${config}" role="img" aria-label="${platform} 3D 改裝預覽">
+    <div class="car3d-load" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    ${opt.interactive===false?'':`<button class="car3d-reset" type="button" aria-label="重設 3D 視角" title="重設 3D 視角"
+      onclick="resetCar3D(event)">${ic('orbit',17)}</button>`}
   </div>`;
-
-  return `<div class="cv depth-cv">${bg}${wheelImg(AXF)}${wheelImg(AXR)}${body}<div class="cv-light"></div></div>`;
 }
 
-/* 同一展示台內的 A/B 圖層共用視角，避免比較線兩側產生位置差。 */
-function afterCarScenes(){
-  const finePointer = matchMedia('(hover:hover) and (pointer:fine)').matches;
-  const reduceMotion = matchMedia('(prefers-reduced-motion:reduce)').matches;
+function bodySpec(bodyId){
+  const d = bodyById(bodyId) || {L:4433,W:1710,H:1366,wb:2700};
+  return {
+    id:bodyId,
+    length:d.L/1000,
+    width:d.W/1000,
+    height:d.H/1000,
+    wheelbase:d.wb/1000,
+    eclipse:bodyId.endsWith('2g'),
+    open:bodyId==='cabrio'||bodyId==='spyder2g',
+  };
+}
 
-  $$('.stage').forEach(stage=>{
-    const cars = $$('.depth-cv',stage);
-    if(!cars.length) return;
-    stage.classList.add('depth-stage');
-    if(!finePointer || reduceMotion) return;
+function lowerBodyPoints(spec){
+  const front=-spec.length/2, rear=spec.length/2;
+  if(spec.open) return [
+    [front+.02,.49],[front+.18,.66],[-1.24,.78],[-.70,.86],[.70,.86],[1.42,.82],[rear-.03,.70],[rear,.49]
+  ];
+  if(spec.eclipse) return [
+    [front+.02,.46],[front+.20,.60],[-1.34,.72],[-.82,.82],[.98,.82],[1.55,.78],[rear-.02,.68],[rear,.46]
+  ];
+  return [
+    [front+.02,.50],[front+.18,.70],[-1.24,.82],[-.78,.86],[1.04,.86],[1.52,.83],[rear-.03,.75],[rear,.50]
+  ];
+}
 
-    const setVar = (name,value)=>cars.forEach(cv=>cv.style.setProperty(name,value));
-    stage.onpointermove = e=>{
-      const r = stage.getBoundingClientRect();
-      const x = Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
-      const y = Math.max(0,Math.min(1,(e.clientY-r.top)/r.height));
-      setVar('--tilt-x',`${((.5-y)*2.8).toFixed(2)}deg`);
-      setVar('--tilt-y',`${((x-.5)*4.8).toFixed(2)}deg`);
-      setVar('--shine-x',`${(28+x*44).toFixed(1)}%`);
-      setVar('--shine-y',`${(18+y*27).toFixed(1)}%`);
-    };
-    stage.onpointerleave = ()=>{
-      setVar('--tilt-x','0deg');
-      setVar('--tilt-y','0deg');
-      setVar('--shine-x','50%');
-      setVar('--shine-y','28%');
-    };
+function cabinPoints(spec){
+  const h=spec.height;
+  if(spec.open) return null;
+  if(spec.id==='touring') return [[-.80,.83],[-.48,h-.07],[.94,h-.07],[1.48,1.10],[1.53,.84]];
+  if(spec.id==='compact') return [[-.72,.83],[-.40,h-.06],[.43,h-.06],[1.16,1.02],[1.22,.84]];
+  if(spec.eclipse) return [[-.82,.80],[-.38,h-.07],[.37,h-.07],[1.03,.98],[1.16,.81]];
+  if(spec.id==='sedan') return [[-.77,.84],[-.40,h-.06],[.42,h-.06],[1.04,1.10],[1.16,.84]];
+  return [[-.74,.84],[-.36,h-.06],[.38,h-.06],[1.00,1.08],[1.13,.84]];
+}
+
+function shapeFromProfile(THREE, spec, tireR){
+  const top=lowerBodyPoints(spec), s=new THREE.Shape();
+  s.moveTo(top[0][0],top[0][1]);
+  top.slice(1).forEach(p=>s.lineTo(p[0],p[1]));
+  const rearX=spec.wheelbase/2, frontX=-rearX, arch=tireR+.065;
+  s.lineTo(spec.length/2-.02,.27);
+  s.lineTo(rearX+arch,tireR);
+  s.absarc(rearX,tireR,arch,0,Math.PI,false);
+  s.lineTo(frontX+arch,tireR);
+  s.absarc(frontX,tireR,arch,0,Math.PI,false);
+  s.lineTo(-spec.length/2+.02,.27);
+  s.closePath();
+  return s;
+}
+
+function shapeFromPolygon(THREE, points){
+  const s=new THREE.Shape();s.moveTo(points[0][0],points[0][1]);
+  points.slice(1).forEach(p=>s.lineTo(p[0],p[1]));s.closePath();return s;
+}
+
+function mat(THREE, color, extra={}){
+  return new THREE.MeshStandardMaterial({color,roughness:.42,metalness:.12,...extra});
+}
+
+function physicalPaint(THREE, hex){
+  return new THREE.MeshPhysicalMaterial({
+    color:hex,metalness:.22,roughness:.26,clearcoat:1,clearcoatRoughness:.12,
   });
 }
 
-/* ---------------- 空力套件：貼合該車身的實際輪廓 ---------------- */
-function seg(prof, x0, x1){
-  const p = prof.filter(q=>q[0]>=x0 && q[0]<=x1);
-  return p.length>1 ? p : prof.slice(0,2);
-}
-function bandPath(pts, dy, dx0=0, dx1=0){
-  if(pts.length<2) return '';
-  const up = pts.map(p=>`${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' L ');
-  const dn = pts.slice().reverse().map((p,i)=>{
-    const x = p[0] + (i===0 ? dx1 : (i===pts.length-1 ? dx0 : 0));
-    return `${x.toFixed(1)} ${(p[1]+dy).toFixed(1)}`;
-  }).join(' L ');
-  return `M ${up} L ${dn} Z`;
+function mesh(THREE, parent, geometry, material, pos=[0,0,0], rot=[0,0,0], cast=true){
+  const m=new THREE.Mesh(geometry,material);
+  m.position.set(...pos);m.rotation.set(...rot);m.castShadow=cast;m.receiveShadow=cast;parent.add(m);return m;
 }
 
-function aeroSVG(b, M, hex, u){
-  const dk = shade(hex,-0.34), lo = M.lo, hi = M.hi;
-  const gid = 'ag'+u;
-  const grad = `<defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="${shade(hex,-0.02)}"/><stop offset="1" stop-color="${shade(hex,-0.30)}"/>
-    </linearGradient></defs>`;
-  const bx = M.box[0], bw = M.box[2];
-  const archR = (M.wheels[0].r + M.wheels[1].r)/2;
-  let s = '';
+function windowPolys(spec){
+  if(spec.open) return [[[-.70,.94],[-.48,1.10],[-.37,1.10],[-.31,.94]]];
+  if(spec.id==='touring') return [
+    [[-.69,1.10],[-.43,spec.height-.12],[-.05,spec.height-.12],[-.08,1.08]],
+    [[.02,1.08],[.02,spec.height-.12],[.87,spec.height-.12],[1.37,1.10]],
+  ];
+  if(spec.id==='sedan') return [
+    [[-.68,1.09],[-.39,spec.height-.12],[-.02,spec.height-.12],[-.06,1.06]],
+    [[.03,1.06],[.03,spec.height-.12],[.40,spec.height-.12],[.94,1.09]],
+  ];
+  if(spec.eclipse) return [
+    [[-.70,1.00],[-.34,spec.height-.13],[.05,spec.height-.13],[-.02,1.00]],
+    [[.06,1.00],[.10,spec.height-.13],[.34,spec.height-.13],[.90,.98]],
+  ];
+  return [
+    [[-.68,1.08],[-.34,spec.height-.12],[.06,spec.height-.12],[-.02,1.05]],
+    [[.06,1.05],[.11,spec.height-.12],[.34,spec.height-.12],[.91,1.06]],
+  ];
+}
 
-  if(b.lip){
-    const p = seg(lo, bx-2, bx+96);
-    s += `<path d="${bandPath(p, 7.5, -8, 0)}" fill="url(#${gid})" stroke="rgba(0,0,0,.42)" stroke-width=".7"/>`;
+function polygonGeometry(THREE, pts){
+  const s=new THREE.Shape();s.moveTo(pts[0][0],pts[0][1]);pts.slice(1).forEach(p=>s.lineTo(p[0],p[1]));s.closePath();
+  return new THREE.ShapeGeometry(s);
+}
+
+function addWindows(THREE, body, spec, build, cabinWidth){
+  const tint=Math.max(0,Math.min(90,+build.tint||0));
+  const c=tint>55?0x030608:tint>20?0x0b171c:0x1b3038;
+  const wm=new THREE.MeshPhysicalMaterial({
+    color:c,metalness:.28,roughness:.08,clearcoat:1,clearcoatRoughness:.06,
+    transparent:true,opacity:.94,side:THREE.DoubleSide,
+  });
+  windowPolys(spec).forEach(poly=>{
+    const g=polygonGeometry(THREE,poly);
+    [-1,1].forEach(side=>mesh(THREE,body,g,wm,[0,0,side*(cabinWidth/2+.046)],[0,0,0],false));
+  });
+  if(!spec.open){
+    const pillar=mat(THREE,0x090d0f,{metalness:.22,roughness:.22});
+    [-1,1].forEach(side=>mesh(THREE,body,new THREE.BoxGeometry(.045,.43,.025),pillar,[.025,1.12,side*(cabinWidth/2+.054)],[0,0,0],false));
+    const cabin=cabinPoints(spec);
+    const slopedGlass=(a,b,coverage)=>{
+      const dx=b[0]-a[0],dy=b[1]-a[1],len=Math.hypot(dx,dy),angle=Math.atan2(dy,dx);
+      const nx=-Math.sin(angle),ny=Math.cos(angle),cx=(a[0]+b[0])/2+nx*.022,cy=(a[1]+b[1])/2+ny*.022;
+      mesh(THREE,body,new THREE.BoxGeometry(len*coverage,.018,cabinWidth*.86),wm,[cx,cy,0],[0,0,angle],false);
+    };
+    slopedGlass(cabin[0],cabin[1],.76);
+    slopedGlass(cabin[cabin.length-2],cabin[cabin.length-1],.70);
   }
-  if(b.skirt){
-    const p = seg(lo, AXF+archR-6, AXR-archR+6);
-    s += `<path d="${bandPath(p, 6.5)}" fill="url(#${gid})" stroke="rgba(0,0,0,.36)" stroke-width=".7"/>`;
+  if(spec.open){
+    const interior=mat(THREE,0x111614,{roughness:.78});
+    mesh(THREE,body,new THREE.BoxGeometry(1.65,.10,spec.width*.76),interior,[.05,.88,0]);
+    [-.30,.52].forEach(x=>mesh(THREE,body,new THREE.BoxGeometry(.42,.54,.48),interior,[x,.78,-.29],[0,0,0]));
+    const frame=mat(THREE,0x252d2d,{metalness:.38,roughness:.28});
+    [-1,1].forEach(side=>mesh(THREE,body,new THREE.BoxGeometry(.07,.48,.045),frame,[-.47,1.03,side*(spec.width*.35)],[0,0,-.72]));
   }
-  if(b.diffuser){
-    const p = seg(lo, bx+bw-96, bx+bw+2);
-    s += `<path d="${bandPath(p, 11, 0, 8)}" fill="#191c21"/>`;
-    for(let i=0;i<4;i++){
-      const q = p[Math.min(p.length-1, Math.round(p.length*(0.18+i*0.2)))];
-      if(q) s += `<rect x="${(q[0]-2).toFixed(1)}" y="${(q[1]+1).toFixed(1)}" width="4" height="9" fill="#3a3f47"/>`;
-    }
+}
+
+function addPanelLines(THREE, body, spec){
+  const lm=new THREE.LineBasicMaterial({color:0x151a1b,transparent:true,opacity:.5});
+  const doorX=spec.eclipse?-.05:-.02;
+  [-1,1].forEach(side=>{
+    const z=side*(spec.width/2+.046);
+    const pts=[new THREE.Vector3(doorX,1.04,z),new THREE.Vector3(doorX,.48,z),new THREE.Vector3(.72,.45,z)];
+    body.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),lm));
+    const lower=[new THREE.Vector3(-1.18,.43,z),new THREE.Vector3(1.20,.43,z)];
+    body.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(lower),lm));
+  });
+}
+
+function wheelPreset(id){
+  if(id==='steel') return {spokes:12,steel:true};
+  if(id==='st66') return {spokes:5,wide:true};
+  if(id==='dish') return {spokes:8,dish:true};
+  if(id==='mesh') return {spokes:14,thin:true};
+  if(id==='st5'||id==='st39') return {spokes:10,thin:true};
+  if(id==='ecl-oem'||id==='ecl-gold') return {spokes:6,wide:true};
+  if(id==='ecl-mesh6') return {spokes:12,thin:true};
+  return {spokes:10,wide:true};
+}
+
+function makeWheel(THREE, build, tireR, tireW, side){
+  const g=new THREE.Group(), preset=wheelPreset(build.wheel);
+  const od=(+build.size||17)*.0254+2*((+build.tireW||225)/1000*((+build.tireAR||45)/100));
+  const rimR=Math.min(tireR*.82,tireR*((+build.size||17)*.0254/Math.max(.2,od)));
+  const sidewall=Math.max(.045,tireR-rimR), tireMat=mat(THREE,0x111312,{roughness:.88,metalness:0});
+  const tire=mesh(THREE,g,new THREE.TorusGeometry(tireR-sidewall*.52,sidewall*.52,12,48),tireMat);
+  tire.scale.z=tireW/sidewall;
+  const fin=WHEEL_FINISHES.find(x=>x.id===build.finish)||WHEEL_FINISHES[0];
+  const rimMat=new THREE.MeshStandardMaterial({color:fin.face,metalness:preset.steel?.5:.82,roughness:preset.steel?.42:.2});
+  const discMat=mat(THREE,0x737b7d,{metalness:.72,roughness:.34});
+  const cal=CALIPER_COLORS.find(x=>x.id===build.caliper)||CALIPER_COLORS[0];
+  const calMat=mat(THREE,cal.hex,{metalness:.25,roughness:.3});
+  mesh(THREE,g,new THREE.CylinderGeometry(rimR*.73,rimR*.73,.055,40),discMat,[0,0,side*.012],[Math.PI/2,0,0]);
+  mesh(THREE,g,new THREE.BoxGeometry(rimR*.20,rimR*.46,.09),calMat,[-rimR*.55,0,side*.045],[0,0,-.18]);
+  mesh(THREE,g,new THREE.CylinderGeometry(rimR,rimR,.09,48),rimMat,[0,0,side*(tireW*.40)],[Math.PI/2,0,0]);
+  const faceZ=side*(tireW*.5+.012), spokeW=preset.thin?.035:preset.wide?.065:.05;
+  for(let i=0;i<preset.spokes;i++){
+    const a=i/preset.spokes*Math.PI*2;
+    mesh(THREE,g,new THREE.BoxGeometry(rimR*.77,spokeW,.025),rimMat,
+      [Math.cos(a)*rimR*.37,Math.sin(a)*rimR*.37,faceZ],[0,0,a]);
   }
-  if(b.wide){
-    [M.wheels[0], M.wheels[1]].forEach(w=>{
-      const R = w.r+7;
-      s += `<path d="M ${(w.cx-R).toFixed(1)} ${(w.cy+4).toFixed(1)}
-        A ${R} ${R} 0 0 1 ${(w.cx+R).toFixed(1)} ${(w.cy+4).toFixed(1)}
-        L ${(w.cx+R-5).toFixed(1)} ${(w.cy+7).toFixed(1)}
-        A ${R-5} ${R-5} 0 0 0 ${(w.cx-R+5).toFixed(1)} ${(w.cy+7).toFixed(1)} Z"
-        fill="${shade(hex,-0.13)}" stroke="rgba(0,0,0,.28)" stroke-width=".7"/>`;
+  mesh(THREE,g,new THREE.CylinderGeometry(rimR*.18,rimR*.18,.04,32),rimMat,[0,0,faceZ],[Math.PI/2,0,0]);
+  const lip=new THREE.Mesh(new THREE.TorusGeometry(rimR*.91,rimR*.055,8,48),rimMat);lip.position.z=faceZ;g.add(lip);
+  return g;
+}
+
+function addWheels(THREE, root, spec, build, tireR){
+  const tireW=Math.max(.17,Math.min(.31,(+build.tireW||225)/1000));
+  const track=spec.width/2-tireW*.20;
+  [-spec.wheelbase/2,spec.wheelbase/2].forEach(x=>[-1,1].forEach(side=>{
+    const w=makeWheel(THREE,build,tireR,tireW,side);w.position.set(x,tireR,side*track);root.add(w);
+  }));
+}
+
+function addLightingParts(THREE, body, spec){
+  const front=-spec.length/2-.015,rear=spec.length/2+.015;
+  const head=mat(THREE,spec.eclipse?0xd8eef2:0xe9f4ed,{metalness:.25,roughness:.14,emissive:0xbfd7d5,emissiveIntensity:.35});
+  const tail=mat(THREE,0xb41420,{metalness:.1,roughness:.25,emissive:0x6c0610,emissiveIntensity:.35});
+  const turn=mat(THREE,0xe88721,{emissive:0x7b3504,emissiveIntensity:.25});
+  const hw=spec.eclipse?.42:.37;
+  [-1,1].forEach(side=>{
+    mesh(THREE,body,new THREE.BoxGeometry(.025,.16,hw),head,[front,.62,side*(spec.width*.28)]);
+    mesh(THREE,body,new THREE.BoxGeometry(.025,.17,.30),tail,[rear,.64,side*(spec.width*.31)]);
+    mesh(THREE,body,new THREE.BoxGeometry(.027,.07,.11),turn,[front-.002,.55,side*(spec.width*.48)]);
+  });
+  if(!spec.eclipse){
+    const grille=mat(THREE,0x151a19,{metalness:.55,roughness:.35});
+    [-.10,.10].forEach(z=>mesh(THREE,body,new THREE.BoxGeometry(.03,.18,.15),grille,[front-.006,.56,z]));
+  }
+}
+
+function addMirrors(THREE, body, spec, paint){
+  [-1,1].forEach(side=>{
+    mesh(THREE,body,new THREE.SphereGeometry(.12,18,10),paint,[-.63,1.00,side*(spec.width/2+.11)],[0,0,0]);
+    mesh(THREE,body,new THREE.BoxGeometry(.10,.035,.10),paint,[-.58,.98,side*(spec.width/2+.035)]);
+  });
+}
+
+function addAero(THREE, body, spec, build, paint){
+  const dark=mat(THREE,0x171c1d,{metalness:.38,roughness:.38});
+  const front=-spec.length/2,rear=spec.length/2,w=spec.width;
+  if(build.lip) mesh(THREE,body,new THREE.BoxGeometry(.38,.075,w*.92),dark,[front+.10,.245,0],[0,0,-.08]);
+  if(build.skirt) [-1,1].forEach(side=>mesh(THREE,body,new THREE.BoxGeometry(spec.wheelbase-.62,.065,.10),dark,[0,.265,side*(w/2+.015)]));
+  if(build.diffuser){
+    mesh(THREE,body,new THREE.BoxGeometry(.50,.09,w*.72),dark,[rear-.20,.27,0],[0,0,.10]);
+    [-.45,-.15,.15,.45].forEach(z=>mesh(THREE,body,new THREE.BoxGeometry(.34,.16,.025),dark,[rear-.14,.22,z],[0,0,.12]));
+  }
+  if(build.hood) [-.58,-.40,-.22].forEach(x=>[-.22,.22].forEach(z=>
+    mesh(THREE,body,new THREE.BoxGeometry(.24,.018,.07),dark,[x,.92,z],[0,0,-.12],false)));
+  if(build.wide){
+    const tireR=car3DTireRadius(build),r=tireR+.085;
+    [-spec.wheelbase/2,spec.wheelbase/2].forEach(x=>[-1,1].forEach(side=>{
+      const flare=mesh(THREE,body,new THREE.TorusGeometry(r,.045,8,28,Math.PI),paint,[x,tireR,side*(w/2+.06)]);
+      flare.rotation.z=0;
+    }));
+  }
+  if(build.wing==='duck'){
+    mesh(THREE,body,new THREE.BoxGeometry(.56,.065,w*.78),paint,[rear-.30,.89,0],[0,0,-.16]);
+  }
+  if(build.wing==='gt'){
+    [-.42,.42].forEach(z=>mesh(THREE,body,new THREE.BoxGeometry(.055,.48,.055),dark,[rear-.37,1.09,z]));
+    mesh(THREE,body,new THREE.BoxGeometry(.48,.07,w*.92),dark,[rear-.37,1.32,0],[0,0,-.06]);
+  }
+}
+
+function addExhaust(THREE, root, spec, build){
+  if(!build.tips||build.tips==='none') return;
+  const n=build.tips==='quad'?4:build.tips==='dual'?2:1;
+  const zs=n===1?[-.34]:n===2?[-.42,-.22]:[-.52,-.34,.34,.52];
+  const metal=mat(THREE,0x929a9c,{metalness:.9,roughness:.18}),inner=mat(THREE,0x080a0a,{roughness:.9});
+  zs.forEach(z=>{
+    mesh(THREE,root,new THREE.CylinderGeometry(.055,.065,.30,24),metal,[spec.length/2+.08,.31,z],[0,0,Math.PI/2]);
+    mesh(THREE,root,new THREE.CylinderGeometry(.038,.038,.306,20),inner,[spec.length/2+.085,.31,z],[0,0,Math.PI/2],false);
+  });
+}
+
+function car3DTireRadius(build){
+  const od=(+build.size||17)*25.4+2*((+build.tireW||225)*(+build.tireAR||45)/100);
+  return Math.max(.285,Math.min(.39,od/2000));
+}
+
+function buildCarModel(THREE, spec, build){
+  const root=new THREE.Group(), body=new THREE.Group(), tireR=car3DTireRadius(build);
+  const paintDef=PAINTS.find(x=>x.id===build.paint)||PAINTS[0], paint=physicalPaint(THREE,paintDef.hex);
+  const shape=shapeFromProfile(THREE,spec,tireR);
+  const geo=new THREE.ExtrudeGeometry(shape,{depth:spec.width,bevelEnabled:true,bevelSegments:3,steps:1,bevelSize:.035,bevelThickness:.035,curveSegments:24});
+  geo.translate(0,0,-spec.width/2);
+  mesh(THREE,body,geo,paint);
+  const cabin=cabinPoints(spec), cabinWidth=spec.open?spec.width*.70:spec.width*.76;
+  if(cabin){
+    const cabinGeo=new THREE.ExtrudeGeometry(shapeFromPolygon(THREE,cabin),{
+      depth:cabinWidth,bevelEnabled:true,bevelSegments:3,steps:1,bevelSize:.026,bevelThickness:.026,curveSegments:18,
     });
+    cabinGeo.translate(0,0,-cabinWidth/2);mesh(THREE,body,cabinGeo,paint);
   }
-  if(b.hood){
-    const p = seg(hi, bx+95, bx+240);
-    if(p.length>3){
-      const a=p[Math.round(p.length*0.25)], c=p[Math.round(p.length*0.6)];
-      s += `<path d="M ${a[0]} ${(a[1]+9).toFixed(1)} L ${(a[0]+58)} ${(a[1]+5).toFixed(1)} L ${(a[0]+58)} ${(a[1]+11).toFixed(1)} L ${a[0]} ${(a[1]+15).toFixed(1)} Z" fill="#1a1d22" opacity=".8"/>
-        <path d="M ${c[0]} ${(c[1]+11).toFixed(1)} L ${(c[0]+52)} ${(c[1]+7).toFixed(1)} L ${(c[0]+52)} ${(c[1]+13).toFixed(1)} L ${c[0]} ${(c[1]+17).toFixed(1)} Z" fill="#1a1d22" opacity=".62"/>`;
-    }
-  }
-  if(b.wing==='duck'){
-    const p = seg(hi, bx+bw-76, bx+bw-8);
-    if(p.length>2){
-      const a=p[0], z=p[p.length-1];
-      s += `<path d="M ${a[0].toFixed(1)} ${a[1].toFixed(1)}
-        C ${((a[0]+z[0])/2).toFixed(1)} ${(Math.min(a[1],z[1])-9).toFixed(1)}, ${(z[0]-14).toFixed(1)} ${(z[1]-11).toFixed(1)}, ${z[0].toFixed(1)} ${(z[1]-9).toFixed(1)}
-        L ${z[0].toFixed(1)} ${(z[1]+2).toFixed(1)}
-        C ${(z[0]-16).toFixed(1)} ${(z[1]-1).toFixed(1)}, ${((a[0]+z[0])/2).toFixed(1)} ${(Math.min(a[1],z[1])+2).toFixed(1)}, ${a[0].toFixed(1)} ${(a[1]+4).toFixed(1)} Z"
-        fill="url(#${gid})" stroke="${dk}" stroke-width=".7"/>`;
-    }
-  }
-  if(b.wing==='gt'){
-    const p = seg(hi, bx+bw-56, bx+bw-6);
-    const a = p[0] || [bx+bw-56, 200];
-    const top = a[1]-58;
-    s += `<rect x="${(a[0]-24).toFixed(1)}" y="${top.toFixed(1)}" width="12" height="58" fill="#23262b"/>
-      <rect x="${(a[0]+22).toFixed(1)}" y="${top.toFixed(1)}" width="12" height="58" fill="#23262b"/>
-      <path d="M ${(a[0]-48).toFixed(1)} ${(top-8).toFixed(1)} L ${(a[0]+58).toFixed(1)} ${(top-12).toFixed(1)}
-               L ${(a[0]+60).toFixed(1)} ${(top+5).toFixed(1)} L ${(a[0]-46).toFixed(1)} ${(top+9).toFixed(1)} Z"
-        fill="#2a2e34" stroke="#3d424b" stroke-width=".8"/>
-      <path d="M ${(a[0]-46).toFixed(1)} ${(top+9).toFixed(1)} L ${(a[0]+60).toFixed(1)} ${(top+5).toFixed(1)}
-               L ${(a[0]+58).toFixed(1)} ${(top+13).toFixed(1)} L ${(a[0]-44).toFixed(1)} ${(top+17).toFixed(1)} Z" fill="#171a1e"/>`;
-  }
-  if(b.tips && b.tips!=='none'){
-    const p = seg(lo, bx+bw-120, bx+bw-14);
-    const q = p[Math.max(0,Math.round(p.length*0.45))] || [bx+bw-80, 340];
-    const n = b.tips==='quad'?4:b.tips==='dual'?2:1;
-    const w = n===4?12:n===2?15:17, gap = n===4?15:n===2?18:0;
-    for(let i=0;i<n;i++)
-      s += `<rect x="${(q[0]-(n-1)*gap/2 + i*gap - w/2).toFixed(1)}" y="${(q[1]-8).toFixed(1)}"
-             width="${w}" height="10" rx="5" fill="#767c85" stroke="#3d434b" stroke-width=".6"/>
-        <ellipse cx="${(q[0]-(n-1)*gap/2 + i*gap + w/2 - 3).toFixed(1)}" cy="${(q[1]-3).toFixed(1)}"
-             rx="2.4" ry="3.6" fill="#14171b"/>`;
-  }
-  return s ? `<svg class="cvl" viewBox="0 0 ${VW} ${VH}" preserveAspectRatio="none">${grad}${s}</svg>` : '';
+  const dark=mat(THREE,0x15191a,{metalness:.22,roughness:.55});
+  mesh(THREE,body,new THREE.BoxGeometry(spec.length*.58,.10,spec.width*.76),dark,[.02,.31,0]);
+  addWindows(THREE,body,spec,build,cabinWidth);addPanelLines(THREE,body,spec);addLightingParts(THREE,body,spec);
+  addMirrors(THREE,body,spec,paint);addAero(THREE,body,spec,build,paint);
+  body.position.y=-Math.max(0,+build.drop||0)/1000;root.add(body);
+  addWheels(THREE,root,spec,build,tireR);addExhaust(THREE,root,spec,build);
+  root.rotation.y=0;
+  return root;
 }
 
-/* 輪圈選擇器縮圖 */
-function wheelThumb(styleId, finId){
-  const fin = WHEEL_FINISHES.find(w=>w.id===finId) || WHEEL_FINISHES[0];
-  const src = AIMG['wheel-'+styleId];
-  return `<div style="position:relative;width:100%;aspect-ratio:1/1;isolation:isolate">
-    <img src="${src}" alt="" style="position:absolute;inset:0;width:100%;height:100%;filter:${fin.br?`brightness(${fin.br})`:'none'}">
-    ${fin.mul==='#ffffff'?'':`<div style="position:absolute;inset:0;
-      -webkit-mask-image:url(${src});mask-image:url(${src});-webkit-mask-size:100% 100%;mask-size:100% 100%;
-      background:${fin.mul};mix-blend-mode:multiply"></div>`}
-  </div>`;
+function createScene(root, config, THREE, OrbitControls){
+  const spec=bodySpec(config.bodyId), dark=document.documentElement.dataset.theme==='dark';
+  const scene=new THREE.Scene();scene.background=new THREE.Color(dark?0x101511:0xdfe4de);scene.fog=new THREE.Fog(scene.background,8,16);
+  const camera=new THREE.PerspectiveCamera(31,1,.1,50);
+  camera.position.set(...CAR3D_VIEW.offset);
+  const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,preserveDrawingBuffer:true,powerPreference:'high-performance'});
+  renderer.setPixelRatio(Math.min(2,devicePixelRatio||1));renderer.shadowMap.enabled=true;
+  renderer.shadowMap.type=THREE.PCFShadowMap;renderer.outputColorSpace=THREE.SRGBColorSpace;
+  renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.08;
+  renderer.domElement.setAttribute('aria-hidden','true');root.prepend(renderer.domElement);
+
+  scene.add(new THREE.HemisphereLight(dark?0xb7d6dd:0xe8f3ef,dark?0x172018:0x6d756d,2.2));
+  const key=new THREE.DirectionalLight(0xffffff,4.0);key.position.set(-4.5,7,5);key.castShadow=true;
+  key.shadow.mapSize.set(1024,1024);key.shadow.camera.left=-6;key.shadow.camera.right=6;key.shadow.camera.top=5;key.shadow.camera.bottom=-2;scene.add(key);
+  const rim=new THREE.DirectionalLight(dark?0x58dcea:0x8ecad5,2.0);rim.position.set(5,3,-5);scene.add(rim);
+  const warm=new THREE.DirectionalLight(0xffb466,.7);warm.position.set(2,1.6,4);scene.add(warm);
+
+  const floor=new THREE.Mesh(new THREE.PlaneGeometry(18,18),new THREE.ShadowMaterial({color:0x000000,opacity:dark?.36:.18}));
+  floor.rotation.x=-Math.PI/2;floor.position.y=.005;floor.receiveShadow=true;scene.add(floor);
+  const grid=new THREE.GridHelper(12,24,dark?0x287b86:0x6d9ca1,dark?0x263a37:0xa7b9b5);
+  grid.material.transparent=true;grid.material.opacity=dark?.34:.42;scene.add(grid);
+  scene.add(buildCarModel(THREE,spec,config.build));
+
+  let controls=null;
+  if(config.interactive){
+    controls=new OrbitControls(camera,renderer.domElement);controls.target.set(...CAR3D_VIEW.target);
+    controls.enableDamping=true;controls.dampingFactor=.075;controls.enablePan=false;
+    controls.minDistance=4.4;controls.maxDistance=9.5;controls.minPolarAngle=.72;controls.maxPolarAngle=1.48;
+  }else camera.lookAt(...CAR3D_VIEW.target);
+
+  const instance={root,scene,camera,renderer,controls,spec,dead:false,observer:null};CAR3D_INSTANCES.push(instance);
+  if(controls){
+    controls.addEventListener('change',()=>syncCar3DView(instance));controls.update();
+  }
+  const resize=()=>{
+    if(instance.dead||!root.isConnected) return;
+    const r=root.getBoundingClientRect();if(r.width<2||r.height<2) return;
+    renderer.setSize(r.width,r.height,false);camera.aspect=r.width/r.height;camera.updateProjectionMatrix();renderer.render(scene,camera);
+  };
+  instance.observer=new ResizeObserver(resize);instance.observer.observe(root);resize();
+  if(controls){
+    renderer.setAnimationLoop(()=>{if(instance.dead)return;controls.update();renderer.render(scene,camera);});
+  }else renderer.render(scene,camera);
+  root.classList.add('ready');
+  return instance;
 }
 
-/* 對外沿用舊名稱，全站不必改呼叫點 */
-const carSVG = carPhoto;
+function syncCar3DView(source){
+  if(CAR3D_SYNCING||!source.controls) return;
+  const off=source.camera.position.clone().sub(source.controls.target);
+  CAR3D_VIEW={offset:off.toArray(),target:source.controls.target.toArray()};CAR3D_SYNCING=true;
+  CAR3D_INSTANCES.forEach(x=>{
+    if(x===source||x.dead||!x.controls) return;
+    x.controls.target.set(...CAR3D_VIEW.target);x.camera.position.copy(x.controls.target).add(off);x.controls.update();
+  });
+  CAR3D_SYNCING=false;
+}
+
+function resetCar3D(event){
+  event.preventDefault();event.stopPropagation();CAR3D_VIEW=structuredClone(CAR3D_DEFAULT_VIEW);CAR3D_SYNCING=true;
+  CAR3D_INSTANCES.forEach(x=>{
+    if(x.dead) return;
+    x.camera.position.set(...CAR3D_VIEW.offset);
+    if(x.controls){x.controls.target.set(...CAR3D_VIEW.target);x.controls.update();}
+    else x.camera.lookAt(...CAR3D_VIEW.target);
+  });
+  CAR3D_SYNCING=false;
+}
+
+function afterCarScenes(){
+  const roots=$$('.car3d:not(.ready)');if(!roots.length)return;
+  CAR3D_READY.then(({THREE,OrbitControls})=>roots.forEach(root=>{
+    if(!root.isConnected||root.classList.contains('ready')) return;
+    try{createScene(root,JSON.parse(decodeURIComponent(root.dataset.car3d)),THREE,OrbitControls);}
+    catch(err){console.error('[car3d]',err);root.classList.add('failed');}
+  })).catch(err=>{console.error('[car3d-load]',err);roots.forEach(x=>x.classList.add('failed'));});
+}
+
+function disposeCarScenes(){
+  while(CAR3D_INSTANCES.length){
+    const x=CAR3D_INSTANCES.pop();x.dead=true;x.observer?.disconnect();x.controls?.dispose();x.renderer.setAnimationLoop(null);
+    x.scene.traverse(o=>{o.geometry?.dispose?.();if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose?.());}});
+    x.renderer.dispose();x.renderer.forceContextLoss();
+  }
+}
+
+function car3DExport(){
+  const root=AB ? $('#abAfter .car3d') : $('#stage .car3d');
+  const x=CAR3D_INSTANCES.find(i=>i.root===root);
+  if(!x) return null;x.renderer.render(x.scene,x.camera);return x.renderer.domElement.toDataURL('image/png');
+}
+
+function wheelThumb(styleId, finishId){
+  const p=wheelPreset(styleId), fin=WHEEL_FINISHES.find(x=>x.id===finishId)||WHEEL_FINISHES[0];
+  const spokes=Array.from({length:p.spokes},(_,i)=>{
+    const a=i/p.spokes*Math.PI*2, x1=50+Math.cos(a)*10,y1=50+Math.sin(a)*10,x2=50+Math.cos(a)*31,y2=50+Math.sin(a)*31;
+    return `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/>`;
+  }).join('');
+  return `<svg class="wheel-mini" viewBox="0 0 100 100" aria-hidden="true">
+    <circle cx="50" cy="50" r="45" fill="#151817"/><circle cx="50" cy="50" r="34" fill="${fin.face}" stroke="#758080" stroke-width="3"/>
+    <g stroke="${p.steel?'#222828':'#f2f4ef'}" stroke-width="${p.thin?3:5}" stroke-linecap="round">${spokes}</g>
+    <circle cx="50" cy="50" r="9" fill="${fin.face}"/><circle cx="50" cy="50" r="3" fill="#161a19"/>
+  </svg>`;
+}
+
+const carSVG=carPhoto;
 
 /* ===== 32-page-dash.js ===== */
 /* ==========================================================================
@@ -3618,9 +3771,9 @@ function heroHud(c){
   </div>`;
 }
 
-/* 車輛主視覺。有對應素材就直接算圖，沒有才退回文字卡（不拿別台車的圖硬湊） */
+/* 車輛主視覺。有對應模型就建立 3D 場景，沒有才退回文字卡。 */
 function heroArt(c, uid){
-  if(c.bodyId && BODY_META[c.bodyId]) return `<div class="stage crop mech-stage">${carPhoto(c.build,{bodyId:c.bodyId,uid})}${heroHud(c)}</div>`;
+  if(c.bodyId && hasCar3D(c.bodyId)) return `<div class="stage crop mech-stage">${carPhoto(c.build,{bodyId:c.bodyId,uid})}${heroHud(c)}</div>`;
   const m = mdlById(c.modelId), b = bodyById(c.bodyId), e = carEngine(c);
   return `<div class="stage" style="aspect-ratio:1000/352;display:flex;flex-direction:column;
       align-items:center;justify-content:center;gap:6px;text-align:center;padding:var(--s3)">
@@ -3966,9 +4119,9 @@ const DPARTS = [
 function pgDesign(){
   const c = car();
   if(!c) return needCar('設計預覽需要先建立車輛 — 相容性會依你的年份、引擎與車身型式計算');
-  if(!c.bodyId || !BODY_META[c.bodyId]) return `<div class="card"><div class="empty">${ic('car',44)}
+  if(!c.bodyId || !hasCar3D(c.bodyId)) return `<div class="card"><div class="empty">${ic('car',44)}
     <p><b>還沒有選車身型式</b><br><span class="t-cap">設計預覽要知道是哪一種車身才畫得出來。
-    ${esc(platName(platOf(c)))} 目前有：${bodiesOf(platOf(c)).filter(x=>BODY_META[x.id]).map(x=>esc(x.name)).join('、')}</span></p>
+    ${esc(platName(platOf(c)))} 目前有：${bodiesOf(platOf(c)).filter(x=>hasCar3D(x.id)).map(x=>esc(x.name)).join('、')}</span></p>
     <button class="btn pri" onclick="editCar('${c.id}')">去選車身型式</button></div></div>`;
   const b = c.build;
   const stock = {...b, wheel:'st42', finish:'silver', size:15, tireW:205, tireAR:60, drop:0,
@@ -4021,7 +4174,7 @@ function pgDesign(){
   </div>
 
   <div class="note" style="margin-top:var(--s3)">
-    <b>這是 AI 生成的示意圖。</b>${esc(ASSET_NOTE)} 圖片僅供外觀方向參考，不代表實際尺寸、輪拱間隙與安裝相容性。
+    <b>這是比例化 3D 示意模型。</b> 車體依原廠長寬高與軸距建立，改裝零件用於外觀比較，不代表毫米級鈑件尺寸、輪拱間隙或實際安裝相容性。
   </div>`;
 }
 
@@ -4213,63 +4366,10 @@ function doSavePlan(){
 /* ---------------- 下載預覽圖 ---------------- */
 function exportPng(){
   const c = car(); if(!c) return;
-  const b = c.build, bodyId = (c.bodyId && BODY_META[c.bodyId]) ? c.bodyId : 'coupe';
-  const M = BODY_META[bodyId], K = 2, W = VW*K, H = VH*K;
-  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-  const x = cv.getContext('2d');
-  const load = src => new Promise(r=>{ const i=new Image(); i.onload=()=>r(i); i.onerror=()=>r(null); i.src=src; });
-  Promise.all([load(AIMG['body-'+bodyId]), load(AIMG['mask-paint-'+bodyId]),
-               load(AIMG['mask-glass-'+bodyId]), load(AIMG['wheel-'+b.wheel])]).then(([bi,pm,gm,wi])=>{
-    const paint = PAINTS.find(p=>p.id===b.paint)||PAINTS[0];
-    const fin = WHEEL_FINISHES.find(w=>w.id===b.finish)||WHEEL_FINISHES[0];
-    const cal = CALIPER_COLORS.find(w=>w.id===b.caliper)||CALIPER_COLORS[0];
-    const archR = (M.wheels[0].r+M.wheels[1].r)/2;
-    const {tyreR, rimR} = wheelDims(b, archR);
-    const wcy = (GND-tyreR)*K, dy = ((+b.drop||0)*S - BODY_LIFT)*K;
-    const wm = WHEEL_META[b.wheel] || {rim:199.1, size:420};
-    const half = rimR*(wm.size/2)/wm.rim*K;
-    const dark = document.documentElement.dataset.theme==='dark';
-    x.fillStyle = dark?'#0f1116':'#F2F2F5'; x.fillRect(0,0,W,H);
-    [[AXF,M.wheels[0]],[AXR,M.wheels[1]]].forEach(([cx,w])=>{
-      const CX = cx*K;
-      x.beginPath(); x.arc(CX,(w.cy+(+b.drop||0)*S-BODY_LIFT)*K,(w.r+13)*K,0,7); x.fillStyle='#101318'; x.fill();
-      x.beginPath(); x.arc(CX,wcy,rimR*0.80*K,0,7); x.fillStyle='#5a5f66'; x.fill();
-      x.beginPath(); x.arc(CX,wcy,rimR*0.50*K,0,7); x.fillStyle='#494d54'; x.fill();
-      x.save(); x.beginPath(); x.arc(CX,wcy,rimR*0.80*K,Math.PI*0.62,Math.PI*1.12);
-      x.lineWidth=rimR*0.30*K; x.strokeStyle=cal.hex; x.stroke(); x.restore();
-      x.beginPath(); x.arc(CX,wcy,(rimR+tyreR)/2*K,0,7); x.lineWidth=(tyreR-rimR)*K;
-      x.strokeStyle='#0e1013'; x.stroke();
-      if(wi){
-        x.save(); if(fin.br) x.filter='brightness('+fin.br+')';
-        x.drawImage(wi, CX-half, wcy-half, half*2, half*2); x.filter='none';
-        if(fin.mul!=='#ffffff'){
-          const t=document.createElement('canvas'); t.width=t.height=Math.max(2,Math.round(half*2));
-          const tc=t.getContext('2d'); tc.drawImage(wi,0,0,t.width,t.height);
-          tc.globalCompositeOperation='source-in'; tc.fillStyle=fin.mul; tc.fillRect(0,0,t.width,t.height);
-          x.globalCompositeOperation='multiply'; x.drawImage(t, CX-half, wcy-half, half*2, half*2);
-          x.globalCompositeOperation='source-over';
-        }
-        x.restore();
-      }
-    });
-    const bx=M.box[0]*K, by=M.box[1]*K+dy, bw=M.box[2]*K, bh=M.box[3]*K;
-    if(bi) x.drawImage(bi,bx,by,bw,bh);
-    const tinted=(mask,color,op,mode)=>{
-      if(!mask) return;
-      const t=document.createElement('canvas'); t.width=Math.round(bw); t.height=Math.round(bh);
-      const tc=t.getContext('2d'); tc.drawImage(mask,0,0,t.width,t.height);
-      tc.globalCompositeOperation='source-in'; tc.fillStyle=color; tc.fillRect(0,0,t.width,t.height);
-      x.save(); x.globalAlpha=op; x.globalCompositeOperation=mode; x.drawImage(t,bx,by,bw,bh); x.restore();
-    };
-    tinted(pm, paint.hex, 1, 'multiply');
-    const L = lumOf(paint.hex), scr = Math.max(0,Math.min(1,(L-0.55)/0.45))*0.5;
-    if(scr>0.01) tinted(pm,'#ffffff',scr,'screen');
-    if(+b.tint) tinted(gm,'#04070b',(+b.tint)/100*0.82,'source-over');
-    const a=document.createElement('a');
-    a.href=cv.toDataURL('image/png');
-    a.download='e36-'+(carLabel(c)||'build').replace(/\s+/g,'-')+'.png';
-    a.click(); toast('已下載預覽圖');
-  });
+  const data=car3DExport();if(!data){toast('3D 預覽還在載入');return;}
+  const a=document.createElement('a');a.href=data;
+  a.download=(platOf(c)==='dsm2g'?'eclipse-2g-':'e36-')+(carLabel(c)||'build').replace(/\s+/g,'-')+'.png';
+  a.click();toast('已下載目前 3D 視角');
 }
 
 /* A/B 拖曳 */
@@ -4448,7 +4548,7 @@ function pgPlans(){
   return `<div class="grid g2">${plans.map(p=>{
     const s = planSummary(p.parts||[], c);
     return `<div class="card" style="padding:0;overflow:hidden">
-      ${p.build?`<div class="stage crop">${carPhoto(p.build,{bodyId:c.bodyId,uid:'pl'+p.id})}</div>`:''}
+      ${p.build?`<div class="stage crop">${carPhoto(p.build,{bodyId:c.bodyId,uid:'pl'+p.id,interactive:false})}</div>`:''}
       <div style="padding:var(--s3)">
         <h3 class="t-card">${esc(p.name)}</h3>
         <p class="t-cap" style="margin:4px 0 0">${esc(p.at)}${p.desc?' · '+esc(p.desc):''}</p>
@@ -5093,7 +5193,7 @@ function pgSettings(){
     </div>
     <div class="note" style="margin-top:var(--s3)">
       每一筆數據都標註了可信度與來源。標示「尚未驗證」的項目代表查無可靠來源，請勿直接照著施工。
-      車輛外觀預覽為 AI 生成的示意素材，不代表實際尺寸與安裝相容性。</div>
+      車輛外觀預覽為比例化 3D 示意模型，不代表毫米級尺寸與實際安裝相容性。</div>
   </div>
   <div class="card">
     <h3 class="t-card">重置</h3>

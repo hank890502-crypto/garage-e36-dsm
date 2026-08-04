@@ -62,7 +62,7 @@ const FITMENT_GUIDE = [
   {car:'m3',   size:17, w:10,  et:25, tire:'275/35R17', lvl:'wide', need:['寬體／暴龜'], note:'賽道極限'},
 ];
 
-/* 輪圈樣式 — 對應 AI 生成的鋁圈素材。
+/* 輪圈樣式 — 對應 3D 輪框幾何與零件庫縮圖。
    ⚠ 這些是「類別近似」的示意圖，不是精確的原廠 Style 復刻。 */
 const WHEEL_STYLES = [
   {id:'st5',   name:'雙輻 Style 5',    cat:'五雙輻'},

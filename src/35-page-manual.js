@@ -457,7 +457,7 @@ function pgSettings(){
     </div>
     <div class="note" style="margin-top:var(--s3)">
       每一筆數據都標註了可信度與來源。標示「尚未驗證」的項目代表查無可靠來源，請勿直接照著施工。
-      車輛外觀預覽為 AI 生成的示意素材，不代表實際尺寸與安裝相容性。</div>
+      車輛外觀預覽為比例化 3D 示意模型，不代表毫米級尺寸與實際安裝相容性。</div>
   </div>
   <div class="card">
     <h3 class="t-card">重置</h3>

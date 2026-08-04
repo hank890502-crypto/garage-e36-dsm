@@ -16,9 +16,9 @@ const DPARTS = [
 function pgDesign(){
   const c = car();
   if(!c) return needCar('設計預覽需要先建立車輛 — 相容性會依你的年份、引擎與車身型式計算');
-  if(!c.bodyId || !BODY_META[c.bodyId]) return `<div class="card"><div class="empty">${ic('car',44)}
+  if(!c.bodyId || !hasCar3D(c.bodyId)) return `<div class="card"><div class="empty">${ic('car',44)}
     <p><b>還沒有選車身型式</b><br><span class="t-cap">設計預覽要知道是哪一種車身才畫得出來。
-    ${esc(platName(platOf(c)))} 目前有：${bodiesOf(platOf(c)).filter(x=>BODY_META[x.id]).map(x=>esc(x.name)).join('、')}</span></p>
+    ${esc(platName(platOf(c)))} 目前有：${bodiesOf(platOf(c)).filter(x=>hasCar3D(x.id)).map(x=>esc(x.name)).join('、')}</span></p>
     <button class="btn pri" onclick="editCar('${c.id}')">去選車身型式</button></div></div>`;
   const b = c.build;
   const stock = {...b, wheel:'st42', finish:'silver', size:15, tireW:205, tireAR:60, drop:0,
@@ -71,7 +71,7 @@ function pgDesign(){
   </div>
 
   <div class="note" style="margin-top:var(--s3)">
-    <b>這是 AI 生成的示意圖。</b>${esc(ASSET_NOTE)} 圖片僅供外觀方向參考，不代表實際尺寸、輪拱間隙與安裝相容性。
+    <b>這是比例化 3D 示意模型。</b> 車體依原廠長寬高與軸距建立，改裝零件用於外觀比較，不代表毫米級鈑件尺寸、輪拱間隙或實際安裝相容性。
   </div>`;
 }
 
@@ -263,63 +263,10 @@ function doSavePlan(){
 /* ---------------- 下載預覽圖 ---------------- */
 function exportPng(){
   const c = car(); if(!c) return;
-  const b = c.build, bodyId = (c.bodyId && BODY_META[c.bodyId]) ? c.bodyId : 'coupe';
-  const M = BODY_META[bodyId], K = 2, W = VW*K, H = VH*K;
-  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-  const x = cv.getContext('2d');
-  const load = src => new Promise(r=>{ const i=new Image(); i.onload=()=>r(i); i.onerror=()=>r(null); i.src=src; });
-  Promise.all([load(AIMG['body-'+bodyId]), load(AIMG['mask-paint-'+bodyId]),
-               load(AIMG['mask-glass-'+bodyId]), load(AIMG['wheel-'+b.wheel])]).then(([bi,pm,gm,wi])=>{
-    const paint = PAINTS.find(p=>p.id===b.paint)||PAINTS[0];
-    const fin = WHEEL_FINISHES.find(w=>w.id===b.finish)||WHEEL_FINISHES[0];
-    const cal = CALIPER_COLORS.find(w=>w.id===b.caliper)||CALIPER_COLORS[0];
-    const archR = (M.wheels[0].r+M.wheels[1].r)/2;
-    const {tyreR, rimR} = wheelDims(b, archR);
-    const wcy = (GND-tyreR)*K, dy = ((+b.drop||0)*S - BODY_LIFT)*K;
-    const wm = WHEEL_META[b.wheel] || {rim:199.1, size:420};
-    const half = rimR*(wm.size/2)/wm.rim*K;
-    const dark = document.documentElement.dataset.theme==='dark';
-    x.fillStyle = dark?'#0f1116':'#F2F2F5'; x.fillRect(0,0,W,H);
-    [[AXF,M.wheels[0]],[AXR,M.wheels[1]]].forEach(([cx,w])=>{
-      const CX = cx*K;
-      x.beginPath(); x.arc(CX,(w.cy+(+b.drop||0)*S-BODY_LIFT)*K,(w.r+13)*K,0,7); x.fillStyle='#101318'; x.fill();
-      x.beginPath(); x.arc(CX,wcy,rimR*0.80*K,0,7); x.fillStyle='#5a5f66'; x.fill();
-      x.beginPath(); x.arc(CX,wcy,rimR*0.50*K,0,7); x.fillStyle='#494d54'; x.fill();
-      x.save(); x.beginPath(); x.arc(CX,wcy,rimR*0.80*K,Math.PI*0.62,Math.PI*1.12);
-      x.lineWidth=rimR*0.30*K; x.strokeStyle=cal.hex; x.stroke(); x.restore();
-      x.beginPath(); x.arc(CX,wcy,(rimR+tyreR)/2*K,0,7); x.lineWidth=(tyreR-rimR)*K;
-      x.strokeStyle='#0e1013'; x.stroke();
-      if(wi){
-        x.save(); if(fin.br) x.filter='brightness('+fin.br+')';
-        x.drawImage(wi, CX-half, wcy-half, half*2, half*2); x.filter='none';
-        if(fin.mul!=='#ffffff'){
-          const t=document.createElement('canvas'); t.width=t.height=Math.max(2,Math.round(half*2));
-          const tc=t.getContext('2d'); tc.drawImage(wi,0,0,t.width,t.height);
-          tc.globalCompositeOperation='source-in'; tc.fillStyle=fin.mul; tc.fillRect(0,0,t.width,t.height);
-          x.globalCompositeOperation='multiply'; x.drawImage(t, CX-half, wcy-half, half*2, half*2);
-          x.globalCompositeOperation='source-over';
-        }
-        x.restore();
-      }
-    });
-    const bx=M.box[0]*K, by=M.box[1]*K+dy, bw=M.box[2]*K, bh=M.box[3]*K;
-    if(bi) x.drawImage(bi,bx,by,bw,bh);
-    const tinted=(mask,color,op,mode)=>{
-      if(!mask) return;
-      const t=document.createElement('canvas'); t.width=Math.round(bw); t.height=Math.round(bh);
-      const tc=t.getContext('2d'); tc.drawImage(mask,0,0,t.width,t.height);
-      tc.globalCompositeOperation='source-in'; tc.fillStyle=color; tc.fillRect(0,0,t.width,t.height);
-      x.save(); x.globalAlpha=op; x.globalCompositeOperation=mode; x.drawImage(t,bx,by,bw,bh); x.restore();
-    };
-    tinted(pm, paint.hex, 1, 'multiply');
-    const L = lumOf(paint.hex), scr = Math.max(0,Math.min(1,(L-0.55)/0.45))*0.5;
-    if(scr>0.01) tinted(pm,'#ffffff',scr,'screen');
-    if(+b.tint) tinted(gm,'#04070b',(+b.tint)/100*0.82,'source-over');
-    const a=document.createElement('a');
-    a.href=cv.toDataURL('image/png');
-    a.download='e36-'+(carLabel(c)||'build').replace(/\s+/g,'-')+'.png';
-    a.click(); toast('已下載預覽圖');
-  });
+  const data=car3DExport();if(!data){toast('3D 預覽還在載入');return;}
+  const a=document.createElement('a');a.href=data;
+  a.download=(platOf(c)==='dsm2g'?'eclipse-2g-':'e36-')+(carLabel(c)||'build').replace(/\s+/g,'-')+'.png';
+  a.click();toast('已下載目前 3D 視角');
 }
 
 /* A/B 拖曳 */

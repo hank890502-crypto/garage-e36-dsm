@@ -153,7 +153,7 @@ function pgPlans(){
   return `<div class="grid g2">${plans.map(p=>{
     const s = planSummary(p.parts||[], c);
     return `<div class="card" style="padding:0;overflow:hidden">
-      ${p.build?`<div class="stage crop">${carPhoto(p.build,{bodyId:c.bodyId,uid:'pl'+p.id})}</div>`:''}
+      ${p.build?`<div class="stage crop">${carPhoto(p.build,{bodyId:c.bodyId,uid:'pl'+p.id,interactive:false})}</div>`:''}
       <div style="padding:var(--s3)">
         <h3 class="t-card">${esc(p.name)}</h3>
         <p class="t-cap" style="margin:4px 0 0">${esc(p.at)}${p.desc?' · '+esc(p.desc):''}</p>

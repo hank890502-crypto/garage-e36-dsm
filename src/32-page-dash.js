@@ -104,9 +104,9 @@ function heroHud(c){
   </div>`;
 }
 
-/* 車輛主視覺。有對應素材就直接算圖，沒有才退回文字卡（不拿別台車的圖硬湊） */
+/* 車輛主視覺。有對應模型就建立 3D 場景，沒有才退回文字卡。 */
 function heroArt(c, uid){
-  if(c.bodyId && BODY_META[c.bodyId]) return `<div class="stage crop mech-stage">${carPhoto(c.build,{bodyId:c.bodyId,uid})}${heroHud(c)}</div>`;
+  if(c.bodyId && hasCar3D(c.bodyId)) return `<div class="stage crop mech-stage">${carPhoto(c.build,{bodyId:c.bodyId,uid})}${heroHud(c)}</div>`;
   const m = mdlById(c.modelId), b = bodyById(c.bodyId), e = carEngine(c);
   return `<div class="stage" style="aspect-ratio:1000/352;display:flex;flex-direction:column;
       align-items:center;justify-content:center;gap:6px;text-align:center;padding:var(--s3)">

@@ -61,6 +61,7 @@ const IC = {
   filter:'M4 6h16M7 12h10M10 18h4',
   check:'M4.5 12.5 9.5 17.5 19.5 6.5',
   circle:'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
+  orbit:'M4.9 6.8A8.5 8.5 0 1 1 3.5 14M4.9 6.8V3m0 3.8h3.8M12 8v4l2.7 2',
 };
 const ic = (n,s=20)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${IC[n]||IC.circle}"/></svg>`;
 
@@ -168,6 +169,7 @@ const PAGES = {
 };
 
 function render(){
+  disposeCarScenes();
   const sec = NAV.find(n=>n.id===SEC);
   const key = TAB ? `${SEC}/${TAB}` : SEC;
   $('#top').dataset.screen = `G-SYS // ${sec.id.toUpperCase()} / ${TAB ? TAB.toUpperCase() : 'STATUS'}`;
