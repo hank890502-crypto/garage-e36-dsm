@@ -180,6 +180,6 @@ function fuelLine(c){
   const rec = fuelRec(c), p = fuelPrice(rec.k), f = fuelNow();
   if(!p) return '';
   const nm = (f.list.find(x=>x.k===rec.k)||{}).name || '';
-  return `<button class="btn txt sm" onclick="nav('mycar/fuel')" style="margin-left:auto;padding-left:0">
+  return `<button class="btn txt sm fuel-link" onclick="nav('mycar/fuel')">
     ${esc(nm.replace('汽油',''))} ${p1(p)} 元/L · 加滿約 ${money(tankOf(c)*p)} ›</button>`;
 }

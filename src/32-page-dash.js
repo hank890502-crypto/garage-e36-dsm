@@ -17,61 +17,69 @@ function pgOverview(){
                : urgent.length ? ['y','即將到期 '+urgent.length+' 項'] : ['g','目前正常'];
 
   return `
-  <!-- 車輛主視覺：畫面的主角 -->
-  <div class="card stack-l" style="padding:0;overflow:hidden">
-    ${heroArt(c,'ov')}
-    <div style="padding:var(--s3);margin-top:0">
-      <h3 class="t-sec">${esc(carLabel(c))}</h3>
-      <p class="t-cap" style="margin:6px 0 0">${esc(carSubtitle())}</p>
-      <div class="summary" style="margin-top:var(--s3)">
-        <div class="it"><div class="lb">目前里程</div><div class="vl">${nf(c.km)} <small>km</small></div></div>
-        <div class="it"><div class="lb">車況</div><div class="vl" style="font-size:17px;padding-top:5px">
-          <span class="st ${health[0]}">${health[1]}</span></div></div>
-        <div class="it"><div class="lb">改裝進度</div><div class="vl">${proj.length?Math.round(done/proj.length*100):0}<small>%</small></div></div>
-        <div class="it"><div class="lb">已投入</div><div class="vl">${money(spent).replace('NT$','')} <small>元</small></div></div>
-      </div>
-      <div class="btnrow" style="margin-top:var(--s3)">
-        <button class="btn" onclick="nav('mycar/info')">查看車輛</button>
-        <button class="btn" onclick="nav('build/design')">改裝設計</button>
-        ${fuelLine(c)}
+  <div class="overview-grid">
+    <!-- 車輛主視覺與最常用資訊 -->
+    <div class="card overview-hero">
+      ${heroArt(c,'ov')}
+      <div class="overview-body">
+        <div class="overview-title">
+          <div class="meta">
+            <h3 class="t-sec">${esc(carLabel(c))}</h3>
+            <p class="t-cap" style="margin:5px 0 0">${esc(carSubtitle())}</p>
+          </div>
+          <span class="st ${health[0]} overview-health">${health[1]}</span>
+        </div>
+        <div class="summary">
+          <div class="it"><div class="lb">目前里程</div><div class="vl">${nf(c.km)} <small>km</small></div></div>
+          <div class="it"><div class="lb">改裝進度</div><div class="vl">${proj.length?Math.round(done/proj.length*100):0}<small>%</small></div></div>
+          <div class="it"><div class="lb">已投入</div><div class="vl">${money(spent).replace('NT$','')} <small>元</small></div></div>
+          <div class="it"><div class="lb">最近保養</div><div class="vl" style="font-size:18px;padding-top:3px">${lastLog?esc(lastLog.date||'—'):'尚無紀錄'}</div></div>
+        </div>
+        <div class="overview-actions">
+          <button class="btn" onclick="nav('mycar/info')">${ic('car',18)} 查看車輛</button>
+          <button class="btn" onclick="nav('build/design')">${ic('wand',18)} 改裝設計</button>
+          ${fuelLine(c)}
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- 現在需要處理的事情：最多三項 -->
-  <div class="card">
-    <h3 class="t-card">現在需要處理</h3>
-    ${urgent.length ? `<div class="rows" style="margin-top:var(--s2)">
-      ${urgent.slice(0,3).map(m=>maintBlock(m,c,false)).join('')}
-    </div>` : `<p class="t-cap" style="margin:var(--s2) 0 0">沒有到期或逾期的項目。</p>`}
-    ${noRec.length ? `<details class="dd" style="margin-top:var(--s2);border-top:1px solid var(--line)">
-      <summary class="mut">另外 ${noRec.length} 個項目尚未建立紀錄</summary>
-      <div class="in"><div class="rows">${noRec.map(m=>`<div class="row">
-        <div class="gr" style="font-size:14px">${esc(m.name)}</div>
-        <span class="t-cap">建議每 ${m.km?nf(m.km)+' km':''}${m.km&&m.mo?' 或 ':''}${m.mo?m.mo+' 個月':''}</span>
-      </div>`).join('')}</div>
-      <p class="t-cap" style="margin-top:var(--s2)">建立第一筆紀錄後，系統就會依里程與時間自動推算下次到期。</p></div>
-    </details>` : ''}
-  </div>
-
-  <!-- 目前改裝專案 -->
-  <div class="card">
-    <h3 class="t-card">改裝專案</h3>
-    ${proj.length ? (()=>{
-      const nextItem = proj.find(p=>p.st!=='done' && p.st!=='removed' && p.st!=='sold');
-      const pt = nextItem && PARTS.find(x=>x.id===nextItem.pid);
-      return `
-      <div class="summary" style="margin-top:var(--s2);grid-template-columns:repeat(3,minmax(0,1fr))">
-        <div class="it"><div class="lb">項目</div><div class="vl">${done}<small> / ${proj.length}</small></div></div>
-        <div class="it"><div class="lb">預算使用</div><div class="vl">${est?Math.round(spent/est*100):0}<small>%</small></div></div>
-        <div class="it"><div class="lb">尚需支付</div><div class="vl" style="font-size:20px">${money(Math.max(0,est-spent))}</div></div>
+    <div class="overview-aside">
+      <!-- 現在需要處理的事情：最多三項 -->
+      <div class="card overview-attention">
+        <div class="overview-card-head">${ic('alert',20)}<h3 class="t-card">現在需要處理</h3></div>
+        ${urgent.length ? `<div class="rows" style="margin-top:var(--s2)">
+          ${urgent.slice(0,3).map(m=>maintBlock(m,c,false)).join('')}
+        </div>` : `<p class="t-cap" style="margin:var(--s2) 0 0">沒有到期或逾期的項目。</p>`}
+        ${noRec.length ? `<details class="dd" style="margin-top:var(--s2);border-top:1px solid var(--line)">
+          <summary class="mut">另外 ${noRec.length} 個項目尚未建立紀錄</summary>
+          <div class="in"><div class="rows">${noRec.map(m=>`<div class="row">
+            <div class="gr" style="font-size:14px">${esc(m.name)}</div>
+            <span class="t-cap">建議每 ${m.km?nf(m.km)+' km':''}${m.km&&m.mo?' 或 ':''}${m.mo?m.mo+' 個月':''}</span>
+          </div>`).join('')}</div>
+          <p class="t-cap" style="margin-top:var(--s2)">建立第一筆紀錄後，系統就會依里程與時間自動推算下次到期。</p></div>
+        </details>` : ''}
       </div>
-      ${nextItem?`<div class="note" style="margin-top:var(--s3)">
-        <b>下一步：</b>${esc(pt?pt.name:nextItem.name||'—')} — ${esc(PROJ_ST.find(s=>s.id===nextItem.st)?.n||'')}</div>`:''}
-      <div class="btnrow" style="margin-top:var(--s3)">
-        <button class="btn txt" onclick="nav('build/project')">查看專案 →</button></div>`;
-    })() : `<p class="t-cap" style="margin:var(--s2) 0 var(--s3)">還沒有改裝專案。在設計預覽選好零件後可以直接轉成施工專案。</p>
-      <button class="btn" onclick="nav('build/design')">開始規劃</button>`}
+
+      <!-- 目前改裝專案 -->
+      <div class="card overview-project">
+        <div class="overview-card-head">${ic('chart',20)}<h3 class="t-card">改裝專案</h3></div>
+        ${proj.length ? (()=>{
+          const nextItem = proj.find(p=>p.st!=='done' && p.st!=='removed' && p.st!=='sold');
+          const pt = nextItem && PARTS.find(x=>x.id===nextItem.pid);
+          return `
+          <div class="summary" style="margin-top:var(--s2)">
+            <div class="it"><div class="lb">項目</div><div class="vl">${done}<small> / ${proj.length}</small></div></div>
+            <div class="it"><div class="lb">預算使用</div><div class="vl">${est?Math.round(spent/est*100):0}<small>%</small></div></div>
+            <div class="it"><div class="lb">尚需支付</div><div class="vl" style="font-size:20px">${money(Math.max(0,est-spent))}</div></div>
+          </div>
+          ${nextItem?`<div class="note" style="margin-top:var(--s3)">
+            <b>下一步：</b>${esc(pt?pt.name:nextItem.name||'—')} — ${esc(PROJ_ST.find(s=>s.id===nextItem.st)?.n||'')}</div>`:''}
+          <div class="btnrow" style="margin-top:var(--s2)">
+            <button class="btn txt" onclick="nav('build/project')">查看專案 →</button></div>`;
+        })() : `<p class="t-cap" style="margin:var(--s2) 0 var(--s3)">還沒有改裝專案。在設計預覽選好零件後可以直接轉成施工專案。</p>
+          <button class="btn" onclick="nav('build/design')">開始規劃</button>`}
+      </div>
+    </div>
   </div>`;
 }
 
@@ -81,8 +89,8 @@ function heroArt(c, uid){
   const m = mdlById(c.modelId), b = bodyById(c.bodyId), e = carEngine(c);
   return `<div class="stage" style="aspect-ratio:1000/352;display:flex;flex-direction:column;
       align-items:center;justify-content:center;gap:6px;text-align:center;padding:var(--s3)">
-    <div style="font-size:13px;letter-spacing:.14em;color:var(--tx3)">${esc(platName(platOf(c)))}</div>
-    <div style="font-size:26px;font-weight:600;letter-spacing:-.02em">${esc(m?m.name:'—')}${m&&m.drive?` <span style="color:var(--tx2);font-size:18px">${m.drive}</span>`:''}</div>
+    <div style="font-size:13px;letter-spacing:0;color:var(--tx3)">${esc(platName(platOf(c)))}</div>
+    <div style="font-size:26px;font-weight:600;letter-spacing:0">${esc(m?m.name:'—')}${m&&m.drive?` <span style="color:var(--tx2);font-size:18px">${m.drive}</span>`:''}</div>
     <div class="t-cap">${esc([c.year, b&&b.name, e&&e.name].filter(Boolean).join(' · '))}</div>
     <div class="t-cap" style="color:var(--orange)">${c.bodyId?'這個車身型式還沒有合成素材':'還沒有選車身型式，選了才畫得出車'}</div>
     ${!c.bodyId?`<button class="btn sm" style="margin-top:8px" onclick="editCar('${c.id}')">去選車身型式</button>`:''}

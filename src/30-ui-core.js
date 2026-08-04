@@ -19,7 +19,7 @@ function applyTheme(){
     ? (matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light')
     : UI.theme;
   document.documentElement.dataset.theme = t;
-  const m = $('meta[name=theme-color]'); if(m) m.content = t==='dark' ? '#000000' : '#F5F5F7';
+  const m = $('meta[name=theme-color]'); if(m) m.content = t==='dark' ? '#111416' : '#F3F5F6';
 }
 applyTheme();
 matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>{ if(UI.theme==='auto') applyTheme(); });
@@ -55,6 +55,7 @@ const IC = {
   down:'M12 4v13m0 0 5-5m-5 5-5-5M4 20h16',
   up:'M12 20V7m0 0 5 5m-5-5-5 5M4 4h16',
   trash:'M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6.5 7l1 13a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1l1-13',
+  edit:'M4 20h4l11-11-4-4L4 16zM13.5 6.5l4 4',
   back:'M15 5l-7 7 7 7',
   fwd:'M9 5l7 7-7 7',
   filter:'M4 6h16M7 12h10M10 18h4',
@@ -176,6 +177,10 @@ function render(){
     `<a href="#${n.id}" class="${n.id===SEC?'on':''}">${ic(n.ic,23)}<span>${n.name}</span></a>`).join('');
   $('#sidefoot').innerHTML = DB.cars.length>1
     ? `<button class="btn blk sm" onclick="pickCar()">切換車輛</button>` : '';
+  const activeCar = car();
+  $('#brandSub').textContent = activeCar
+    ? (platOf(activeCar)==='dsm2g' ? 'Mitsubishi Eclipse 2G · 1995–1999' : 'BMW E36 · 1990–2000')
+    : 'BMW E36 / Eclipse 2G';
 
   $('#ttl').textContent = sec.id==='overview' ? greet() : sec.name;
   $('#sub').textContent = sec.id==='overview' ? carSubtitle() : (sec.sub||'');
@@ -212,7 +217,9 @@ function render(){
 
 function greet(){
   const h = new Date().getHours();
-  return (h<5?'夜深了':h<11?'早安':h<18?'午安':'晚安') + '，這是你的 BMW E36';
+  const c = car();
+  const carName = !c ? '車庫' : platOf(c)==='dsm2g' ? 'Eclipse 2G' : 'BMW E36';
+  return (h<5?'夜深了':h<11?'早安':h<18?'午安':'晚安') + `，這是你的 ${carName}`;
 }
 function carSubtitle(){
   const c = car(); if(!c) return '先建立一台車，開始使用';
@@ -221,19 +228,23 @@ function carSubtitle(){
 }
 
 /* 每個畫面最多一個主要按鈕 */
+function topAct(label, handler, icon='plus'){
+  return `<button class="btn pri top-act" aria-label="${esc(label)}" title="${esc(label)}" onclick="${handler}">
+    ${ic(icon,18)}<span class="act-label">${esc(label)}</span></button>`;
+}
 function topActions(key){
   const c = car();
   const pick = DB.cars.length>1
     ? `<button class="btn sm" onclick="pickCar()">${esc(carLabel(c)).slice(0,10)} ⌄</button>` : '';
-  if(!c) return `<button class="btn pri" onclick="editCar()">${ic('plus',18)} 建立車輛</button>`;
+  if(!c) return topAct('建立車輛','editCar()');
   const map = {
-    'overview':      pick + `<button class="btn pri" onclick="editLog()">${ic('plus',18)} 新增保養紀錄</button>`,
-    'mycar/info':    pick + `<button class="btn pri" onclick="editCar(DB.cur)">編輯車輛</button>`,
-    'mycar/history': pick + `<button class="btn pri" onclick="editLog()">${ic('plus',18)} 新增紀錄</button>`,
-    'build/design':  pick + `<button class="btn pri" onclick="savePlan()">儲存成方案</button>`,
-    'build/plans':   pick + `<button class="btn pri" onclick="nav('build/design')">新增方案</button>`,
-    'build/project': pick + `<button class="btn pri" onclick="addToProject()">${ic('plus',18)} 新增項目</button>`,
-    'service/maint': pick + `<button class="btn pri" onclick="editLog()">${ic('plus',18)} 新增紀錄</button>`,
+    'overview':      pick + topAct('新增保養紀錄','editLog()'),
+    'mycar/info':    pick + topAct('編輯車輛','editCar(DB.cur)','edit'),
+    'mycar/history': pick + topAct('新增紀錄','editLog()'),
+    'build/design':  pick + topAct('儲存成方案','savePlan()','check'),
+    'build/plans':   pick + topAct('新增方案',"nav('build/design')"),
+    'build/project': pick + topAct('新增項目','addToProject()'),
+    'service/maint': pick + topAct('新增紀錄','editLog()'),
   };
   return map[key] ?? pick;
 }
@@ -249,7 +260,7 @@ function pickCar(){
     footer:`<button class="btn" onclick="closeModal();editCar()">新增車輛</button>`});
 }
 
-function needCar(msg='先建立你的 E36'){
+function needCar(msg='先建立一台車'){
   return `<div class="card"><div class="empty">${ic('car',44)}
     <p>${esc(msg)}<br><span class="t-cap">建立後，改裝方案、保養提醒與相容性判斷都會綁定這台車</span></p>
     <button class="btn pri" onclick="editCar()">${ic('plus',18)} 建立車輛</button></div></div>`;
