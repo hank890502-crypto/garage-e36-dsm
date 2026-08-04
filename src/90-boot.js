@@ -26,6 +26,11 @@ if(!DB.cars.length){
      shop:'', parts:'金屬葉輪水泵 / BMW G48 冷卻液', cost:24800, labor:12000,
      items:['coolant'], note:'手冊規格：M52 冷卻水 10.5 L（含副水箱）'},
   ];
+  demo.fuelLogs = [
+    {id:uid(), date:'2026-07-05', km:184950, liters:49.2, total:1515, full:true, note:'95 無鉛'},
+    {id:uid(), date:'2026-07-19', km:185710, liters:62.8, total:1934, full:true, note:'95 無鉛'},
+    {id:uid(), date:'2026-08-02', km:186500, liters:65.3, total:2011, full:true, note:'95 無鉛'},
+  ];
   demo.project = [
     {id:uid(), pid:'c-subframe', name:'', est:90000, paid:0, st:'todo', shop:'', date:today(),
      note:'裝絞牙避震前必須先做', cost:{}},

@@ -19,7 +19,7 @@ function applyTheme(){
     ? (matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light')
     : UI.theme;
   document.documentElement.dataset.theme = t;
-  const m = $('meta[name=theme-color]'); if(m) m.content = t==='dark' ? '#111416' : '#F3F5F6';
+  const m = $('meta[name=theme-color]'); if(m) m.content = t==='dark' ? '#10130F' : '#D9DDD8';
 }
 applyTheme();
 matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>{ if(UI.theme==='auto') applyTheme(); });
@@ -170,6 +170,7 @@ const PAGES = {
 function render(){
   const sec = NAV.find(n=>n.id===SEC);
   const key = TAB ? `${SEC}/${TAB}` : SEC;
+  $('#top').dataset.screen = `G-SYS // ${sec.id.toUpperCase()} / ${TAB ? TAB.toUpperCase() : 'STATUS'}`;
 
   $('#nav').innerHTML = NAV.map(n=>
     `<a href="#${n.id}" class="${n.id===SEC?'on':''}">${ic(n.ic,20)}<span>${n.name}</span></a>`).join('');

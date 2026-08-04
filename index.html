@@ -3,43 +3,45 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#F3F5F6">
-<title>GARAGE · E36 / DSM</title>
+<meta name="theme-color" content="#D9DDD8">
+<title>GARAGE OS · E36 / DSM</title>
 <style>
 /* ==========================================================================
-   Design System
-   間距系統 8 / 16 / 24 / 32 / 48　·　內容寬度上限 1200
-   層級靠留白與字級建立，不靠邊框；一頁一個主要藍色按鈕
+   GARAGE OS Design System
+   90s Japanese workshop terminal: industrial panels, racing signals, dense telemetry.
    ========================================================================== */
 :root{
-  --bg:#F3F5F6; --card:#FFFFFF; --raise:#FFFFFF;
-  --fill:#EEF1F3; --fill2:#E0E5E8;
-  --tx:#171A1D; --tx2:#626970; --tx3:#8A9299;
-  --line:#E1E5E8; --line2:#C9D0D5;
-  --blue:#1769AA; --blue-s:rgba(23,105,170,.10);
-  --green:#218653; --orange:#C96A22; --red:#C93C36;
-  --shadow:0 1px 2px rgba(22,30,36,.04),0 8px 24px rgba(22,30,36,.055);
-  --stage:linear-gradient(180deg,#F8FAFB 0%,#E9EDF0 100%);
+  --bg:#D9DDD8; --card:#F7F7F1; --raise:#FFFFFF;
+  --fill:#E7E9E3; --fill2:#CED3CC;
+  --tx:#151915; --tx2:#565E57; --tx3:#7A837B;
+  --line:#C1C7C0; --line2:#969F97;
+  --blue:#C6202C; --blue-s:rgba(198,32,44,.11); --tech:#08738C;
+  --green:#24834E; --orange:#D77B16; --red:#C6202C;
+  --shadow:2px 2px 0 rgba(44,51,45,.14);
+  --stage:linear-gradient(180deg,#ECEFE9 0%,#CCD2CB 100%);
   --s1:8px; --s2:16px; --s3:24px; --s4:32px; --s5:48px;
-  --r:8px; --rs:7px; --rx:7px;
+  --r:3px; --rs:2px; --rx:2px;
   --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
-  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --display:"Avenir Next Condensed","Arial Narrow","Noto Sans TC","PingFang TC",sans-serif;
+  --mono:"SFMono-Regular","Roboto Mono","Noto Sans Mono CJK TC",Menlo,Consolas,monospace;
 }
 [data-theme=dark]{
-  --bg:#111416; --card:#1B1F22; --raise:#252A2E;
-  --fill:#252A2E; --fill2:#32383D;
-  --tx:#F2F4F5; --tx2:#A3AAB0; --tx3:#7F888F;
-  --line:rgba(255,255,255,.10); --line2:rgba(255,255,255,.18);
-  --blue:#58A6E1; --blue-s:rgba(88,166,225,.15);
-  --green:#52B77C; --orange:#E39A58; --red:#EB6A64;
-  --shadow:0 1px 0 rgba(255,255,255,.03);
-  --stage:linear-gradient(180deg,#252A2E 0%,#171B1E 100%);
+  --bg:#10130F; --card:#1C211B; --raise:#262C24;
+  --fill:#262C24; --fill2:#343C31;
+  --tx:#EBEDE4; --tx2:#AFB7AA; --tx3:#778174;
+  --line:#384037; --line2:#596356;
+  --blue:#F04448; --blue-s:rgba(240,68,72,.15); --tech:#4CB7CA;
+  --green:#70CF7A; --orange:#F0AC38; --red:#F04448;
+  --shadow:2px 2px 0 rgba(0,0,0,.46);
+  --stage:linear-gradient(180deg,#252B24 0%,#151915 100%);
 }
 *,*::before,*::after{box-sizing:border-box}
 html,body{margin:0;padding:0;height:100%}
 body{
   background:var(--bg);color:var(--tx);font-family:var(--sans);
   font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;overflow:hidden;
+  background-image:linear-gradient(rgba(33,43,35,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(33,43,35,.035) 1px,transparent 1px);
+  background-size:24px 24px;
 }
 a{color:var(--blue);text-decoration:none}
 a:hover{text-decoration:underline}
@@ -48,9 +50,9 @@ button,input,select,textarea{font:inherit;color:inherit}
 ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:99px;border:2px solid transparent;background-clip:padding-box}
 
 /* ---------- 字級 ---------- */
-.t-page{font-size:28px;font-weight:700;letter-spacing:0;line-height:1.25;margin:0}
-.t-sec{font-size:20px;font-weight:650;letter-spacing:0;line-height:1.35;margin:0}
-.t-card{font-size:17px;font-weight:650;letter-spacing:0;line-height:1.4;margin:0}
+.t-page{font-family:var(--display);font-size:28px;font-weight:800;letter-spacing:0;line-height:1.15;margin:0}
+.t-sec{font-family:var(--display);font-size:20px;font-weight:750;letter-spacing:0;line-height:1.3;margin:0}
+.t-card{font-family:var(--display);font-size:17px;font-weight:750;letter-spacing:0;line-height:1.35;margin:0}
 .t-body{font-size:15px;font-weight:400}
 .t-cap{font-size:13px;font-weight:400;color:var(--tx2);line-height:1.55}
 .t-data{font-size:28px;font-weight:650;letter-spacing:0;line-height:1.15;font-variant-numeric:tabular-nums}
@@ -63,29 +65,37 @@ button,input,select,textarea{font:inherit;color:inherit}
 /* ---------- 版面 ---------- */
 #app{display:flex;height:100vh;height:100dvh;overflow:hidden}
 #side{
-  width:248px;flex:0 0 248px;background:color-mix(in srgb,var(--card) 72%,var(--bg));
-  border-right:1px solid var(--line);display:flex;flex-direction:column;padding:20px var(--s2)
+  width:248px;flex:0 0 248px;background:#151915;
+  background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);
+  background-size:16px 16px;border-right:4px solid #303731;display:flex;flex-direction:column;padding:20px var(--s2);color:#ECEEE6
 }
-.brand{padding:2px 10px 28px;display:flex;align-items:center;gap:12px}
-.brand .mk{width:9px;height:32px;border-radius:2px;background:var(--blue);box-shadow:5px 0 0 var(--orange)}
-.brand h1{font-size:15px;font-weight:750;letter-spacing:0;margin:0}
-.brand p{font-size:12px;color:var(--tx3);margin:1px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:172px}
+.brand{padding:0 8px 22px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #363D37;margin-bottom:14px}
+.brand .mk{width:34px;height:34px;flex:0 0 34px;border-radius:0;border:2px solid #E8EAE2;background:conic-gradient(#E8EAE2 0 25%,#171B17 0 50%,#E8EAE2 0 75%,#171B17 0) 0 0/12px 12px;box-shadow:inset 4px 0 0 var(--blue)}
+.brand .code{display:block;font-family:var(--mono);font-size:9px;line-height:1.2;color:#E44B50}
+.brand h1{font-family:var(--display);font-size:19px;font-weight:850;line-height:1.05;letter-spacing:0;margin:2px 0 0;color:#F2F3ED}
+.brand p{font-family:var(--mono);font-size:10px;color:#8F998F;margin:3px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:164px}
 #nav{display:flex;flex-direction:column;gap:2px}
 #nav a{
-  display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:6px;
-  color:var(--tx2);font-size:15px;font-weight:500;text-decoration:none;transition:background .12s,color .12s
+  display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:1px;border:1px solid transparent;
+  color:#AAB2AA;font-size:15px;font-weight:550;text-decoration:none;transition:background .12s,color .12s
 }
-#nav a:hover{background:var(--fill);color:var(--tx);text-decoration:none}
-#nav a.on{background:var(--blue-s);color:var(--blue);box-shadow:inset 3px 0 0 var(--blue)}
-#nav a.on svg{color:var(--blue)}
-#nav a svg{color:var(--tx2);flex:0 0 20px}
+#nav a:hover{background:#222822;color:#F1F2EC;text-decoration:none}
+#nav a.on{background:#2A302A;color:#FFFFFF;border-color:#434B43;box-shadow:inset 4px 0 0 var(--blue)}
+#nav a.on svg{color:#F05A5E}
+#nav a svg{color:#7F8980;flex:0 0 20px}
 .sidefoot{margin-top:auto;padding:var(--s1)}
+.side-system{display:flex;align-items:center;gap:7px;margin:18px 8px 0;padding-top:12px;border-top:1px solid #363D37;font-family:var(--mono);font-size:9px;color:#7F8980}
+.side-system .led{width:7px;height:7px;background:#70CF7A;box-shadow:0 0 7px rgba(112,207,122,.55)}
+.side-system b{margin-left:auto;color:#B8C0B7;font-weight:500}
 
-#main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+#main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;border-top:4px solid var(--blue);position:relative}
+#main::after{content:'';position:absolute;z-index:5;right:0;top:-4px;width:104px;height:4px;background:repeating-linear-gradient(135deg,var(--orange) 0 9px,#161A16 9px 18px);pointer-events:none}
 #top{
-  flex:0 0 auto;padding:26px var(--s4) 0;display:flex;align-items:center;gap:var(--s2);
+  flex:0 0 auto;padding:42px var(--s4) 0;display:flex;align-items:center;gap:var(--s2);position:relative;
   max-width:1264px;width:100%;margin:0 auto
 }
+#top::before{content:attr(data-screen);position:absolute;left:var(--s4);top:17px;font-family:var(--mono);font-size:10px;line-height:1;color:var(--tech)}
+#top::after{content:'';position:absolute;left:calc(var(--s4) + 116px);right:var(--s4);top:21px;height:1px;background:var(--line)}
 #top .ttl{min-width:0;flex:1}
 #top .ttl p{margin:4px 0 0;font-size:15px;color:var(--tx2)}
 #top .acts{display:flex;align-items:center;gap:var(--s1);flex:0 0 auto}
@@ -95,16 +105,16 @@ button,input,select,textarea{font:inherit;color:inherit}
 #tabbar{display:none}
 
 /* ---------- 分頁（頁面內） ---------- */
-.seg{display:inline-flex;background:var(--fill);border-radius:var(--rx);padding:2px;gap:2px;max-width:100%;overflow-x:auto;scrollbar-width:none}
+.seg{display:inline-flex;background:var(--fill);border:1px solid var(--line2);border-radius:0;padding:2px;gap:2px;max-width:100%;overflow-x:auto;scrollbar-width:none}
 .seg::-webkit-scrollbar{display:none}
 .seg button{
-  border:0;background:transparent;padding:6px 14px;border-radius:6px;cursor:pointer;
+  border:0;background:transparent;padding:6px 14px;border-radius:0;cursor:pointer;
   font-size:14px;color:var(--tx2);white-space:nowrap;transition:.12s
 }
 .seg button:hover{color:var(--tx)}
-.seg button.on{background:var(--card);color:var(--tx);font-weight:500;box-shadow:0 1px 3px rgba(0,0,0,.08)}
-[data-theme=dark] .seg{background:#1C1C1E}
-[data-theme=dark] .seg button.on{background:var(--fill2);box-shadow:none}
+.seg button.on{background:#191D19;color:#F2F3ED;font-weight:600;box-shadow:inset 0 -3px 0 var(--blue)}
+[data-theme=dark] .seg{background:#111411}
+[data-theme=dark] .seg button.on{background:#E6E8E0;color:#151815;box-shadow:inset 0 -3px 0 var(--blue)}
 
 /* ---------- 容器：整頁最多兩層 ---------- */
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:var(--s3);box-shadow:var(--shadow)}
@@ -481,6 +491,85 @@ code{font-family:var(--mono);font-size:13.5px;background:var(--fill);padding:2px
 .history-cost{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
 .history-cost .amount{font-size:16px;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
 
+/* ---------- JDM industrial terminal skin ---------- */
+.card{border-color:var(--line2);box-shadow:var(--shadow)}
+.overview-hero{border-top:3px solid var(--blue)}
+.overview-attention{border-top:3px solid var(--orange)}
+.overview-fuel{border-top:3px solid var(--tech)}
+.overview-project{border-top:3px solid var(--green)}
+.overview-card-head{padding-bottom:10px;border-bottom:1px solid var(--line)}
+.overview-card-head svg{color:var(--tech)}
+.overview-card-head::after{content:'//';font-family:var(--mono);font-size:10px;color:var(--tx3);margin-left:2px}
+.overview-card-head .btn{order:3}
+
+.t-data,.t-data-s,.summary .it .vl,.fuel-reading b,.fuel-log-summary .vl,.ftile .pr,.sumbar .m .vl,.pcard .price,.history-cost .amount{font-family:var(--mono)}
+.t-cap,.summary .it .lb,.fuel-log-summary .lb,.lapstat .lb,.sumbar .m .lb,.fld>label,table.tb th,.src{font-family:var(--mono)}
+.summary .it .lb,.fuel-log-summary .lb,.lapstat .lb,.sumbar .m .lb{font-size:11px;color:var(--tx3)}
+.summary .it .vl{font-weight:700}
+.overview-hero .summary{border:1px solid var(--line);border-left:4px solid var(--tech);border-radius:0}
+.fuel-reading b{color:var(--tech)}
+.fuel-mini time,.fuel-log-item .when,.fuel-log-item .cost,.history-when{font-family:var(--mono)}
+
+.btn{border:1px solid var(--line2);border-radius:1px;box-shadow:0 2px 0 color-mix(in srgb,var(--line2) 80%,#000);font-family:var(--display);font-weight:700}
+.btn:hover{border-color:var(--tx3)}
+.btn:active{transform:translateY(2px);box-shadow:none}
+.btn.pri{border-color:color-mix(in srgb,var(--blue) 72%,#000);box-shadow:0 2px 0 color-mix(in srgb,var(--blue) 58%,#000)}
+.btn.txt,.btn.dgr{border:0;box-shadow:none;font-family:var(--sans);font-weight:600}
+.btn.ico{box-shadow:0 2px 0 color-mix(in srgb,var(--line2) 80%,#000)}
+.inp{border-radius:1px;background:var(--raise);box-shadow:inset 2px 2px 0 rgba(20,26,21,.05);font-variant-numeric:tabular-nums}
+[data-theme=dark] .inp{border-color:var(--line2);box-shadow:inset 2px 2px 0 rgba(0,0,0,.22)}
+.inp:focus{box-shadow:inset 3px 0 0 var(--blue),0 0 0 2px var(--blue-s)}
+.fld>label{font-size:11px;color:var(--tx2)}
+
+.st{font-family:var(--mono);font-size:12px}
+.st::before{width:8px;height:8px;flex-basis:8px;border-radius:1px;box-shadow:0 0 0 1px rgba(0,0,0,.18),0 0 6px currentColor}
+.chip{border-radius:1px;border:1px solid var(--line);font-family:var(--mono);font-size:11px;padding:3px 7px}
+.note{border-radius:1px;border-left:3px solid var(--line2)}
+.note.y{border-left-color:var(--orange)}
+.note.r{border-left-color:var(--red)}
+.note.b{border-left-color:var(--tech)}
+.bar{height:8px;border-radius:0;background:repeating-linear-gradient(90deg,var(--fill2) 0 11px,transparent 11px 13px);border:1px solid var(--line)}
+.bar>i{border-radius:0;background:repeating-linear-gradient(90deg,var(--green) 0 11px,color-mix(in srgb,var(--green) 78%,#000) 11px 13px)}
+.bar.y>i{background:repeating-linear-gradient(90deg,var(--orange) 0 11px,color-mix(in srgb,var(--orange) 78%,#000) 11px 13px)}
+.bar.r>i{background:var(--red)}
+
+.ftile{border-radius:1px;border:1px solid var(--line);background:var(--fill)}
+.ftile.on{background:var(--blue-s);box-shadow:inset 0 -3px 0 var(--blue);border-color:var(--blue)}
+.ftile .tag{top:-7px;border-radius:0;font-family:var(--mono);font-size:9px}
+.mpg,.wp,.lapstat .it{border-radius:1px;border:1px solid var(--line)}
+.mpn{border-radius:1px;font-family:var(--mono)}
+
+table.tb th{background:#1A1E1A;color:#C7CEC5;border-bottom:3px solid var(--blue);font-size:10px}
+table.tb tbody tr:hover{background:color-mix(in srgb,var(--fill) 68%,transparent)}
+table.tb td{font-variant-numeric:tabular-nums}
+.stage{border-radius:1px;background-color:var(--fill);background-image:linear-gradient(rgba(8,115,140,.10) 1px,transparent 1px),linear-gradient(90deg,rgba(8,115,140,.10) 1px,transparent 1px),var(--stage);background-size:32px 32px,32px 32px,100% 100%}
+.stage::before{content:'VEHICLE SCAN // SIDE PROFILE';position:absolute;z-index:6;left:12px;top:10px;padding:2px 5px;background:color-mix(in srgb,var(--card) 86%,transparent);border-left:3px solid var(--blue);font-family:var(--mono);font-size:9px;line-height:1.4;color:var(--tech);pointer-events:none}
+.stage::after{content:'';position:absolute;z-index:5;inset:10px;border:1px solid color-mix(in srgb,var(--tech) 36%,transparent);pointer-events:none}
+.stage .cv{z-index:1}
+.abl{border-radius:1px;background:rgba(16,20,16,.82);font-family:var(--mono);backdrop-filter:none}
+.abh::after{border-radius:1px}
+.sumbar,.pcard{border:1px solid var(--line2);border-radius:2px;box-shadow:var(--shadow)}
+.pcard .ph{border-bottom:3px solid var(--tx)}
+.pcard .bd h4{font-family:var(--display);font-weight:750}
+
+.modal{border:2px solid var(--line2);border-radius:2px;box-shadow:8px 8px 0 rgba(0,0,0,.28)}
+.modal>header{background:#171B17;color:#F0F2EA;border-bottom:3px solid var(--blue);padding:18px var(--s3)}
+.modal>header h3{font-family:var(--display);font-weight:800}
+.modal>header h3::before{content:'G-SYS / ';font-family:var(--mono);font-size:9px;color:#F06468;vertical-align:middle}
+.modal>header button{border-radius:1px;background:#303730;color:#DCE0D8;border:1px solid #596159}
+.modal>.bd{padding-top:var(--s3)}
+.modal>footer{border-top:1px solid var(--line);background:var(--fill);padding-top:var(--s2)}
+.tst,.snk{border-radius:1px;border:1px solid var(--line2);box-shadow:4px 4px 0 rgba(0,0,0,.22)}
+.tst{background:#171B17;color:#EFF1E9;font-family:var(--mono)}
+code{border-radius:1px;border:1px solid var(--line);color:var(--tech)}
+mark{border-radius:0;background:rgba(240,172,56,.38)}
+
+.clock{font-weight:700;text-shadow:2px 2px 0 rgba(0,0,0,.12)}
+.clock.run{color:var(--green)}
+.bigbtn,#lapbar,#lapbar button{border-radius:1px}
+.bigbtn{border:1px solid var(--line2);box-shadow:0 3px 0 color-mix(in srgb,var(--line2) 75%,#000);font-family:var(--display);font-weight:800}
+#lapbar{border:1px solid color-mix(in srgb,var(--red) 65%,#000);box-shadow:4px 4px 0 rgba(0,0,0,.28)}
+
 @media(max-width:1120px){
   .overview-grid{grid-template-columns:1fr}
   .overview-aside{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s2)}
@@ -555,6 +644,23 @@ code{font-family:var(--mono);font-size:13.5px;background:var(--fill);padding:2px
   .fuel-log-item .main{grid-column:1;grid-row:2}
   .fuel-log-item .actions{grid-column:2;grid-row:2;flex-direction:column;align-items:flex-end;gap:2px}
 }
+@media(max-width:820px){
+  #main{border-top-width:3px}
+  #main::after{top:-3px;height:3px;width:72px}
+  #top{padding:32px var(--s2) 0}
+  #top::before{left:var(--s2);top:10px}
+  #top::after{left:132px;right:var(--s2);top:14px}
+  #tabbar{background:#151915;border-top:3px solid var(--blue);backdrop-filter:none;box-shadow:0 -3px 0 #303731}
+  #tabbar a{color:#89938A;font-family:var(--mono)}
+  #tabbar a.on{color:#F2F3ED;background:#242A24}
+  #tabbar a.on::before{background:var(--blue);width:100%;height:2px;border-radius:0}
+  .modal{border-radius:2px}
+  .modal>header{padding:16px var(--s2)}
+  .modal>.bd{padding:var(--s2)}
+  .modal>footer{padding:var(--s2)}
+  .stage::before{font-size:8px;left:8px;top:7px}
+  .stage::after{inset:7px}
+}
 @media(max-width:420px){.wheelpick{grid-template-columns:repeat(3,1fr)}}
 </style>
 </head>
@@ -563,10 +669,11 @@ code{font-family:var(--mono);font-size:13.5px;background:var(--fill);padding:2px
   <aside id="side">
     <div class="brand">
       <span class="mk"></span>
-      <div><h1>GARAGE</h1><p id="brandSub">BMW E36 / Eclipse 2G</p></div>
+      <div><span class="code">G-SYS // 02</span><h1>GARAGE OS</h1><p id="brandSub">BMW E36 / Eclipse 2G</p></div>
     </div>
     <nav id="nav"></nav>
     <div class="sidefoot" id="sidefoot"></div>
+    <div class="side-system"><span class="led"></span><span>SYSTEM READY</span><b>JP-96</b></div>
   </aside>
 
   <div id="main">
@@ -2802,7 +2909,7 @@ function applyTheme(){
     ? (matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light')
     : UI.theme;
   document.documentElement.dataset.theme = t;
-  const m = $('meta[name=theme-color]'); if(m) m.content = t==='dark' ? '#111416' : '#F3F5F6';
+  const m = $('meta[name=theme-color]'); if(m) m.content = t==='dark' ? '#10130F' : '#D9DDD8';
 }
 applyTheme();
 matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>{ if(UI.theme==='auto') applyTheme(); });
@@ -2953,6 +3060,7 @@ const PAGES = {
 function render(){
   const sec = NAV.find(n=>n.id===SEC);
   const key = TAB ? `${SEC}/${TAB}` : SEC;
+  $('#top').dataset.screen = `G-SYS // ${sec.id.toUpperCase()} / ${TAB ? TAB.toUpperCase() : 'STATUS'}`;
 
   $('#nav').innerHTML = NAV.map(n=>
     `<a href="#${n.id}" class="${n.id===SEC?'on':''}">${ic(n.ic,20)}<span>${n.name}</span></a>`).join('');
@@ -6136,6 +6244,11 @@ if(!DB.cars.length){
     {id:uid(), date:'2025-06-02', km:171400, title:'冷卻系統全套翻新',
      shop:'', parts:'金屬葉輪水泵 / BMW G48 冷卻液', cost:24800, labor:12000,
      items:['coolant'], note:'手冊規格：M52 冷卻水 10.5 L（含副水箱）'},
+  ];
+  demo.fuelLogs = [
+    {id:uid(), date:'2026-07-05', km:184950, liters:49.2, total:1515, full:true, note:'95 無鉛'},
+    {id:uid(), date:'2026-07-19', km:185710, liters:62.8, total:1934, full:true, note:'95 無鉛'},
+    {id:uid(), date:'2026-08-02', km:186500, liters:65.3, total:2011, full:true, note:'95 無鉛'},
   ];
   demo.project = [
     {id:uid(), pid:'c-subframe', name:'', est:90000, paid:0, st:'todo', shop:'', date:today(),
