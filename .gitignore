@@ -1,0 +1,8 @@
+.DS_Store
+node_modules/
+*.log
+# 原廠維修手冊原始檔（體積大且為第三方著作，不進版控）
+*.tgz
+1997 Mitsubishi Eclipse*/
+assets/
+_to_delete/
