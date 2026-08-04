@@ -258,3 +258,31 @@ const ECL_WHEEL_STYLES = [
 /* E36 的鋁圈素材造型通用，兩個平台都可以選 */
 const wheelStylesOf = c => platOf(c)==='dsm2g'
   ? [...ECL_WHEEL_STYLES, ...WHEEL_STYLES] : WHEEL_STYLES;
+
+/* ---------------- 保養項目分類（給紀錄編輯用的選單分組） ---------------- */
+const MAINT_GROUPS = [
+  {id:'fluid', name:'油品',     ic:'droplet', ids:['oil','oilf','coolant','brakef','trans','mtf','atf','diff','tcase','psf']},
+  {id:'filter',name:'濾芯',     ic:'filter',  ids:['airf','cabin','fuelf']},
+  {id:'ign',   name:'點火',     ic:'sun',     ids:['plug','igncbl']},
+  {id:'belt',  name:'皮帶',     ic:'arrows',  ids:['belt','tbelt','bbelt','dbelt']},
+  {id:'brake', name:'煞車',     ic:'disc',    ids:['pad']},
+  {id:'chas',  name:'底盤耗材', ic:'shield',  ids:['tire','cvboot']},
+  {id:'other', name:'其他',     ic:'box',     ids:['batt','insp']},
+];
+/* 把某台車適用的保養項目分好組；沒被歸類的自動落到「其他」 */
+function maintGrouped(c){
+  const items = maintItemsOf(c);
+  const used = new Set();
+  const out = MAINT_GROUPS.map(g=>{
+    const list = items.filter(it=>g.ids.includes(it.id));
+    list.forEach(it=>used.add(it.id));
+    return {...g, list};
+  }).filter(g=>g.list.length);
+  const rest = items.filter(it=>!used.has(it.id));
+  if(rest.length){
+    const o = out.find(g=>g.id==='other');
+    if(o) o.list = o.list.concat(rest);
+    else out.push({id:'other', name:'其他', ic:'box', list:rest});
+  }
+  return out;
+}

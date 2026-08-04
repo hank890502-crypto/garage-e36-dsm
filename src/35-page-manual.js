@@ -352,21 +352,23 @@ function editLog(id){
       <div>
         <div class="fld"><label>日期</label><input class="inp" id="l_date" type="date" value="${esc(l.date)}"></div>
         <div class="fld"><label>里程（km）</label><input class="inp" id="l_km" type="number" value="${l.km||0}"></div>
+
+        <div class="fld"><label>這次做了哪些項目<span class="mut" style="font-weight:400">（用於推算下次到期）</span></label>
+          <div id="mpick">${maintPicker(c, l.items||[])}</div></div>
+
         <div class="fld"><label>維修項目說明</label><input class="inp" id="l_title" value="${esc(l.title)}" placeholder="更換機油與機油濾芯"></div>
+      </div>
+      <div>
         <div class="fld"><label>店家</label><input class="inp" id="l_shop" value="${esc(l.shop)}"></div>
         <div class="fld"><label>使用油品／零件</label><input class="inp" id="l_parts" value="${esc(l.parts)}" placeholder="Motul 8100 5W-40、Mahle OX254D"></div>
         <div class="grid g2" style="gap:var(--s2)">
           <div class="fld"><label>零件費</label><input class="inp" id="l_cost" type="number" value="${l.cost||0}"></div>
           <div class="fld"><label>工資</label><input class="inp" id="l_labor" type="number" value="${l.labor||0}"></div>
         </div>
+        <div class="fld"><label>備註</label><textarea class="inp" id="l_note" style="min-height:110px">${esc(l.note)}</textarea></div>
       </div>
-      <div><div class="t-cap" style="margin-bottom:6px">這次做了哪些項目（用於推算下次到期）</div>
-        <div style="max-height:340px;overflow-y:auto;background:var(--fill);border-radius:var(--rs);padding:0 14px">
-          ${maintItemsOf(c).map(m=>`<label class="chk"><input type="checkbox" class="lgi" value="${m.id}" ${(l.items||[]).includes(m.id)?'checked':''}>
-            <span style="font-size:14px">${esc(m.name)}</span></label>`).join('')}
-        </div></div>
     </div>
-    <div class="fld"><label>備註</label><textarea class="inp" id="l_note">${esc(l.note)}</textarea></div>`,
+`,
     footer:`${isNew?'':`<button class="btn dgr" onclick="delLog('${id}')">刪除</button>`}
       <button class="btn" style="margin-left:auto" onclick="closeModal()">取消</button>
       <button class="btn pri" onclick="saveLog('${l.id}',${isNew})">儲存</button>`});
@@ -471,4 +473,33 @@ function confirmReset(){
 }
 function doReset(){
   DB = structuredClone(DEF); saveDB(); closeModal(); location.hash='#overview'; location.reload();
+}
+
+
+/* ---------------- 保養項目選單：依分類收合，顯示已勾選數量 ---------------- */
+function maintPicker(c, sel){
+  const groups = maintGrouped(c);
+  return groups.map(g=>{
+    const n = g.list.filter(it=>sel.includes(it.id)).length;
+    return `<details class="dd mpg"${n?' open':''}>
+      <summary><span class="mut">${ic(g.ic,17)}</span><span style="flex:1">${esc(g.name)}</span>
+        <span class="mpn${n?' on':''}">${n?n:g.list.length}</span></summary>
+      <div class="in">${g.list.map(m=>`
+        <label class="chk"><input type="checkbox" class="lgi" value="${m.id}"
+          ${sel.includes(m.id)?'checked':''} onchange="mpCount()">
+          <span style="font-size:14px">${esc(m.name)}</span>
+          <span class="t-cap" style="margin-left:auto;white-space:nowrap">${
+            [m.km?nf(m.km)+' km':'', m.mo?m.mo+' 個月':''].filter(Boolean).join(' / ')}</span></label>`).join('')}
+      </div></details>`;
+  }).join('');
+}
+/* 勾選時即時更新各分類右邊的數字 */
+function mpCount(){
+  $$('#mpick .mpg').forEach(d=>{
+    const boxes = [...d.querySelectorAll('.lgi')];
+    const n = boxes.filter(b=>b.checked).length;
+    const badge = d.querySelector('.mpn');
+    badge.textContent = n ? n : boxes.length;
+    badge.classList.toggle('on', !!n);
+  });
 }

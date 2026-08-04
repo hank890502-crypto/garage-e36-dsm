@@ -213,6 +213,45 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .note.r{background:rgba(255,59,48,.09)}
 .note.b{background:var(--blue-s)}
 
+
+/* ---------- 窄螢幕修正：避免內容被切掉 ---------- */
+/* 有些卡片用 inline style 指定欄數，窄螢幕改用 flex 讓它自動換行（inline 的 grid 設定會失效） */
+@media(max-width:520px){
+  .summary{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s3)}
+  .summary>.it{flex:1 1 40%;min-width:0}
+  .summary .it .vl{font-size:20px}
+  .ftiles{display:flex;flex-wrap:wrap}
+  .ftiles>.ftile{flex:1 1 44%;min-width:0}
+}
+/* 長字串（零件名、場地名、車型）不要把容器撐爆 */
+.mhd{min-width:0}
+.mhd .nm{min-width:0;overflow-wrap:anywhere}
+.row .gr,.row .gr>*{min-width:0}
+.rows .t-cap{overflow-wrap:anywhere}
+details.dd>summary{min-width:0}
+details.dd>summary>*{min-width:0}
+.btnrow>*{max-width:100%}
+.btn{overflow-wrap:anywhere;white-space:normal;text-align:center}
+.btn.sm,.seg button{white-space:nowrap}
+/* 極窄螢幕：標題與右側狀態標籤改成可換行，不要互相擠爆 */
+@media(max-width:400px){
+  .mhd{flex-wrap:wrap;gap:4px var(--s1)}
+  .mhd .pc{margin-left:auto}
+  .st{white-space:normal}
+}
+.kv>b{overflow-wrap:anywhere;min-width:0}
+.note,.src{overflow-wrap:anywhere}
+
+/* ---------- 保養項目選單 ---------- */
+.mpg{background:var(--fill);border-radius:var(--rs);margin-bottom:6px;border:0}
+.mpg>summary{padding:11px 14px;gap:10px;font-size:15px}
+.mpg>.in{padding:0 14px 6px}
+.mpn{font-size:12px;min-width:22px;text-align:center;padding:2px 7px;border-radius:99px;
+  background:var(--fill2);color:var(--tx2);font-variant-numeric:tabular-nums}
+.mpn.on{background:var(--blue);color:#fff}
+.mpg .chk{padding:9px 0}
+.mpg .chk span{min-width:0}
+
 /* ---------- 剩餘進度條 ---------- */
 /* 條長＝剩餘比例。滿格＝剛保養完，見底＝該換了。 */
 .bar{height:6px;border-radius:99px;background:var(--fill2);overflow:hidden;margin-top:10px}
