@@ -266,6 +266,31 @@ details.dd>summary>*{min-width:0}
 .mpg .chk{padding:9px 0}
 .mpg .chk span{min-width:0}
 
+/* 保養紀錄分類：固定欄寬與密度，避免圖示、數量和箭頭互相擠壓。 */
+.mpick-title{display:flex!important;align-items:baseline;justify-content:space-between;gap:10px}
+.mpick-title>span{font-family:var(--mono);font-size:9px;color:var(--tx3);white-space:nowrap}
+#mpick{display:grid;gap:6px}
+#mpick details.mpg{margin:0;background:var(--fill);border:1px solid var(--line)}
+#mpick details.mpg>summary{
+  min-height:54px;padding:0 11px;display:grid;grid-template-columns:34px minmax(0,1fr) 30px 10px;
+  align-items:center;column-gap:10px;font-size:15px
+}
+#mpick details.mpg>summary::after{margin:0;justify-self:end;width:7px;height:7px}
+.mp-icon{width:30px;height:30px;display:grid;place-items:center;color:var(--tech);background:var(--card);border:1px solid var(--line2)}
+.mp-icon svg{display:block}
+.mp-label{font-weight:650;line-height:1.2}
+#mpick .mpn{width:28px;height:26px;min-width:28px;padding:0;display:grid;place-items:center;justify-self:end;font-size:11px}
+#mpick details.mpg>.in{padding:3px 12px 7px;border-top:1px solid var(--line)}
+#mpick .mpg .chk{min-height:40px;padding:7px 0;gap:9px}
+#mpick .mpg .chk>span:first-of-type{font-size:13px!important}
+#mpick .mpg .chk .t-cap{font-size:10px}
+@media(max-width:420px){
+  .mpick-title{display:block!important}
+  .mpick-title>span{display:block;margin-top:2px}
+  #mpick details.mpg>summary{min-height:52px;grid-template-columns:32px minmax(0,1fr) 28px 10px;padding:0 9px;column-gap:8px}
+  .mp-icon{width:28px;height:28px}
+}
+
 /* ---------- 剩餘進度條 ---------- */
 /* 條長＝剩餘比例。滿格＝剛保養完，見底＝該換了。 */
 .bar{height:6px;border-radius:99px;background:var(--fill2);overflow:hidden;margin-top:10px}

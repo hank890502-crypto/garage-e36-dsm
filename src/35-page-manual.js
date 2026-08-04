@@ -353,7 +353,7 @@ function editLog(id){
         <div class="fld"><label>日期</label><input class="inp" id="l_date" type="date" value="${esc(l.date)}"></div>
         <div class="fld"><label>里程（km）</label><input class="inp" id="l_km" type="number" value="${l.km||0}"></div>
 
-        <div class="fld"><label>這次做了哪些項目<span class="mut" style="font-weight:400">（用於推算下次到期）</span></label>
+        <div class="fld"><label class="mpick-title">這次做了哪些項目<span>用於推算下次到期</span></label>
           <div id="mpick">${maintPicker(c, l.items||[])}</div></div>
 
         <div class="fld"><label>維修項目說明</label><input class="inp" id="l_title" value="${esc(l.title)}" placeholder="更換機油與機油濾芯"></div>
@@ -482,7 +482,7 @@ function maintPicker(c, sel){
   return groups.map(g=>{
     const n = g.list.filter(it=>sel.includes(it.id)).length;
     return `<details class="dd mpg"${n?' open':''}>
-      <summary><span class="mut">${ic(g.ic,17)}</span><span style="flex:1">${esc(g.name)}</span>
+      <summary><span class="mp-icon">${ic(g.ic,18)}</span><span class="mp-label">${esc(g.name)}</span>
         <span class="mpn${n?' on':''}">${n?n:g.list.length}</span></summary>
       <div class="in">${g.list.map(m=>`
         <label class="chk"><input type="checkbox" class="lgi" value="${m.id}"

@@ -262,11 +262,11 @@ const wheelStylesOf = c => platOf(c)==='dsm2g'
 /* ---------------- 保養項目分類（給紀錄編輯用的選單分組） ---------------- */
 const MAINT_GROUPS = [
   {id:'fluid', name:'油品',     ic:'droplet', ids:['oil','oilf','coolant','brakef','trans','mtf','atf','diff','tcase','psf']},
-  {id:'filter',name:'濾芯',     ic:'filter',  ids:['airf','cabin','fuelf']},
-  {id:'ign',   name:'點火',     ic:'sun',     ids:['plug','igncbl']},
-  {id:'belt',  name:'皮帶',     ic:'arrows',  ids:['belt','tbelt','bbelt','dbelt']},
+  {id:'filter',name:'濾芯',     ic:'airfilter',ids:['airf','cabin','fuelf']},
+  {id:'ign',   name:'點火',     ic:'spark',    ids:['plug','igncbl']},
+  {id:'belt',  name:'皮帶',     ic:'belt',     ids:['belt','tbelt','bbelt','dbelt']},
   {id:'brake', name:'煞車',     ic:'disc',    ids:['pad']},
-  {id:'chas',  name:'底盤耗材', ic:'shield',  ids:['tire','cvboot']},
+  {id:'chas',  name:'底盤耗材', ic:'suspension',ids:['tire','cvboot']},
   {id:'other', name:'其他',     ic:'box',     ids:['batt','insp']},
 ];
 /* 把某台車適用的保養項目分好組；沒被歸類的自動落到「其他」 */
