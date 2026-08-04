@@ -435,6 +435,28 @@ code{font-family:var(--mono);font-size:13.5px;background:var(--fill);padding:2px
 .overview-project .summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s2)}
 .overview-project .summary .it:last-child{grid-column:1/-1;padding-top:var(--s2);border-top:1px solid var(--line)}
 
+/* ---------- 保養履歷 ---------- */
+.history-summary .summary{gap:0}
+.history-summary .it{padding:2px var(--s3)}
+.history-summary .it:first-child{padding-left:0}
+.history-summary .it:last-child{padding-right:0}
+.history-summary .it+.it{border-left:1px solid var(--line)}
+.history-card-head{display:flex;align-items:center;justify-content:space-between;gap:var(--s2);margin-bottom:6px}
+.history-list{position:relative}
+.history-item{
+  display:grid;grid-template-columns:124px minmax(0,1fr) 118px;gap:var(--s3);
+  align-items:start;padding:20px 0;border-bottom:1px solid var(--line)
+}
+.history-item:last-child{border-bottom:0;padding-bottom:2px}
+.history-when{display:flex;flex-direction:column;gap:2px;font-variant-numeric:tabular-nums}
+.history-when time{font-weight:650;color:var(--tx)}
+.history-when span{font-size:13px;color:var(--tx2)}
+.history-content{min-width:0}
+.history-title{font-size:16px;font-weight:650;line-height:1.45;margin-bottom:5px}
+.history-detail{font-size:13px;color:var(--tx2);line-height:1.6;overflow-wrap:anywhere}
+.history-cost{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.history-cost .amount{font-size:16px;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+
 @media(max-width:1120px){
   .overview-grid{grid-template-columns:1fr}
   .overview-aside{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s2)}
@@ -492,6 +514,16 @@ code{font-family:var(--mono);font-size:13.5px;background:var(--fill);padding:2px
   .overview-hero .summary .it:nth-child(even){border-left:1px solid var(--line2);padding-left:var(--s2)}
   .overview-actions{margin-top:var(--s2)}
   .overview-actions .fuel-link{width:100%;margin-left:0;justify-content:flex-start;text-align:left;padding:8px 0;min-height:auto}
+  .history-summary .it{padding:0 var(--s2)}
+  .history-summary .it:first-child{padding-left:0}
+  .history-summary .it:nth-child(3){border-left:0;padding:var(--s2) 0 0;margin-top:var(--s2);border-top:1px solid var(--line);grid-column:1/-1}
+  .history-item{grid-template-columns:108px minmax(0,1fr) auto;gap:var(--s2)}
+}
+@media(max-width:520px){
+  .history-item{grid-template-columns:minmax(0,1fr) auto;gap:10px var(--s2);padding:var(--s2) 0}
+  .history-when{grid-column:1/-1;flex-direction:row;align-items:baseline;gap:10px}
+  .history-content{grid-column:1;grid-row:2}
+  .history-cost{grid-column:2;grid-row:2}
 }
 @media(max-width:420px){.wheelpick{grid-template-columns:repeat(3,1fr)}}
 </style>

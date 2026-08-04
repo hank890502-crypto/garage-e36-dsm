@@ -287,32 +287,36 @@ function pgHistory(){
     <p>還沒有保養紀錄<br><span class="t-cap">建立第一筆後，保養提醒就會開始依里程與時間推算</span></p>
     <button class="btn pri" onclick="editLog()">${ic('plus',18)} 新增保養紀錄</button></div></div>`;
   return `
-  <div class="card">
+  <div class="card history-summary">
     <div class="summary" style="grid-template-columns:repeat(3,minmax(0,1fr))">
       <div class="it"><div class="lb">紀錄筆數</div><div class="vl">${logs.length}</div></div>
       <div class="it"><div class="lb">累計支出</div><div class="vl" style="font-size:22px">${money(total)}</div></div>
       <div class="it"><div class="lb">最近一次</div><div class="vl" style="font-size:18px;padding-top:4px">${esc(logs[0].date||'—')}</div></div>
     </div>
   </div>
-  <div class="card">
-    <h3 class="t-card">維修履歷</h3>
-    <div class="rows" style="margin-top:var(--s2)">
-      ${logs.map(l=>`<div class="row" style="align-items:flex-start">
-        <div class="gr">
-          <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">
-            <b style="font-weight:500">${esc(l.title||'保養')}</b>
-            <span class="t-cap">${esc(l.date||'')}${l.km?` · ${nf(l.km)} km`:''}</span>
-          </div>
-          ${(l.items||[]).length?`<div class="t-cap" style="margin-top:2px">${
+  <div class="card history-card">
+    <div class="history-card-head">
+      <h3 class="t-card">維修履歷</h3>
+      <span class="t-cap">${logs.length} 筆紀錄</span>
+    </div>
+    <div class="history-list">
+      ${logs.map(l=>`<article class="history-item">
+        <div class="history-when">
+          <time datetime="${esc(l.date||'')}">${esc(l.date||'日期未填')}</time>
+          <span>${l.km?nf(l.km)+' km':'里程未填'}</span>
+        </div>
+        <div class="history-content">
+          <div class="history-title">${esc(l.title||'保養')}</div>
+          ${(l.items||[]).length?`<div class="history-detail">${
             (l.items||[]).map(id=>esc(ALL_MAINT().find(m=>m.id===id)?.name||id)).join('、')}</div>`:''}
-          ${l.parts?`<div class="t-cap">${esc(l.parts)}</div>`:''}
-          ${l.note?`<div class="t-cap">${esc(l.note)}</div>`:''}
+          ${l.parts?`<div class="history-detail">${esc(l.parts)}</div>`:''}
+          ${l.note?`<div class="history-detail">${esc(l.note)}</div>`:''}
         </div>
-        <div class="rt">
-          <div class="num" style="font-weight:500">${money((+l.cost||0)+(+l.labor||0))}</div>
-          <button class="btn txt" onclick="editLog('${l.id}')">編輯</button>
+        <div class="history-cost">
+          <div class="amount">${money((+l.cost||0)+(+l.labor||0))}</div>
+          <button class="btn txt" aria-label="編輯 ${esc(l.title||'保養')}" onclick="editLog('${l.id}')">編輯</button>
         </div>
-      </div>`).join('')}
+      </article>`).join('')}
     </div>
   </div>`;
 }
