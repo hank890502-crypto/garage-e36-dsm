@@ -1105,16 +1105,16 @@ const FITMENT_GUIDE = [
 
 /* 輪圈樣式：spoke 幾何與 face profile 會直接驅動 3D 輪圈。 */
 const WHEEL_STYLES = [
-  {id:'st5',   brand:'BMW',name:'Style 5',  cat:'五雙輻',spokes:10,pair:true},
-  {id:'st42',  brand:'BMW',name:'Style 42', cat:'交叉輻',spokes:20,mesh:true},
-  {id:'st39',  brand:'BMW M',name:'Style 39 DS2',cat:'五雙輻',spokes:10,pair:true},
-  {id:'st24',  brand:'BMW M',name:'Style 24 LTW',cat:'五雙輻',spokes:10,pair:true},
-  {id:'bbs-lm',brand:'BBS',name:'LM',cat:'交叉輻鍛造二片式',spokes:20,mesh:true,dish:true,
+  {id:'st5',   brand:'BMW',name:'Style 5',  cat:'五雙輻',spokes:10,pair:true,pairSpread:.034,innerW:.040,outerW:.052},
+  {id:'st42',  brand:'BMW',name:'Style 42', cat:'交叉輻',spokes:20,mesh:true,spokeSweep:.030,innerW:.026,outerW:.038},
+  {id:'st39',  brand:'BMW M',name:'Style 39 DS2',cat:'五雙輻',spokes:10,pair:true,pairSpread:.042,innerW:.050,outerW:.071},
+  {id:'st24',  brand:'BMW M',name:'Style 24 LTW',cat:'五雙輻',spokes:10,pair:true,pairSpread:.030,innerW:.040,outerW:.064},
+  {id:'bbs-lm',brand:'BBS',name:'LM',cat:'交叉輻鍛造二片式',spokes:20,mesh:true,dish:true,spokeSweep:.034,innerW:.022,outerW:.032,
    img:'https://bbs-japan.co.jp/en/wp-content/uploads/sites/2/2016/10/newLM.jpg',src:'bbs_lm'},
-  {id:'arc8',brand:'APEX',name:'ARC-8',cat:'十輻 Flow Formed',spokes:10,thin:true,concave:true,src:'apex_arc8'},
-  {id:'rpf1',brand:'Enkei',name:'RPF1',cat:'六雙輻 MAT',spokes:12,pair:true,thin:true,
+  {id:'arc8',brand:'APEX',name:'ARC-8',cat:'十輻 Flow Formed',spokes:10,thin:true,concave:true,innerW:.030,outerW:.048,src:'apex_arc8'},
+  {id:'rpf1',brand:'Enkei',name:'RPF1',cat:'六雙輻 MAT',spokes:12,pair:true,thin:true,pairSpread:.052,innerW:.026,outerW:.039,spokeSweep:.010,hubScale:.88,
    img:'https://enkei.com/wp-content/uploads/2019/12/ENKEI-RPF1-SP-144-WEB-510x510.jpg',src:'enkei_rpf1'},
-  {id:'st66', brand:'BMW M',name:'Style 66',cat:'五雙輻',spokes:10,pair:true,wide:true},
+  {id:'st66', brand:'BMW M',name:'Style 66',cat:'五雙輻',spokes:10,pair:true,wide:true,pairSpread:.037,innerW:.055,outerW:.086},
   {id:'steel',brand:'BMW',name:'原廠鋼圈',cat:'鋼圈',spokes:12,steel:true},
 ];
 
@@ -3461,7 +3461,8 @@ const CAR3D_BODY_CONFIG = {
   sedan:{wheelMode:'native',hideNodes:['Object_5']},
   compact:{wheelMode:'replace',flipX:true,yOffset:-.950,viewDirection:[.68,.28,.68],
     frontX:1.450,rearX:-1.260,frontY:.300,rearY:.300,frontTrack:.720,rearTrack:.735},
-  touring:{wheelMode:'replace',frontX:-1.472,rearX:1.229,frontY:.311,rearY:.311,frontTrack:.735,rearTrack:.745},
+  touring:{wheelMode:'replace',frontX:-1.472,rearX:1.229,frontY:.311,rearY:.311,frontTrack:.735,rearTrack:.745,
+    repairMaterials:true,smoothPaintNormals:true,relaxPaintSurface:4,paintRoughness:.33},
   cabrio:{wheelMode:'replace',frontX:-1.350,rearX:1.256,frontY:.300,rearY:.314,frontTrack:.740,rearTrack:.755},
   coupe2g:{wheelMode:'replace',yOffset:.105,frontX:-1.305,rearX:1.205,frontY:.315,rearY:.315,frontTrack:.650,rearTrack:.650},
 };
@@ -3566,9 +3567,9 @@ function mat(THREE, color, extra={}){
   return new THREE.MeshStandardMaterial({color,roughness:.42,metalness:.12,...extra});
 }
 
-function physicalPaint(THREE, hex){
+function physicalPaint(THREE, hex, options={}){
   return new THREE.MeshPhysicalMaterial({
-    color:hex,metalness:.26,roughness:.22,clearcoat:1,clearcoatRoughness:.075,
+    color:hex,metalness:.24,roughness:options.roughness??.22,clearcoat:1,clearcoatRoughness:options.clearcoatRoughness??.09,
   });
 }
 
@@ -3717,14 +3718,90 @@ function wheelPreset(id){
   return {spokes:10,wide:true};
 }
 
-function taperedSpokeGeometry(THREE, inner, outer, innerW, outerW, depth){
-  const z=depth/2,v=[-innerW/2,inner,-z, innerW/2,inner,-z, outerW/2,outer,-z,-outerW/2,outer,-z,
-                     -innerW/2,inner,z,  innerW/2,inner,z,  outerW/2,outer,z, -outerW/2,outer,z];
-  const i=[0,1,2,0,2,3,4,6,5,4,7,6,0,4,5,0,5,1,1,5,6,1,6,2,2,6,7,2,7,3,3,7,4,3,4,0];
-  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(v,3));g.setIndex(i);g.computeVertexNormals();return g;
+function sweptSpokeGeometry(THREE, inner, outer, innerW, outerW, depth, sweep=0){
+  const stations=[
+    {x:0,y:inner,w:innerW},
+    {x:sweep*.38,y:inner+(outer-inner)*.52,w:innerW+(outerW-innerW)*.48},
+    {x:sweep,y:outer,w:outerW},
+  ],vertices=[],indices=[],halfDepth=depth/2;
+  [-halfDepth,halfDepth].forEach(z=>stations.forEach(s=>vertices.push(s.x-s.w/2,s.y,z,s.x+s.w/2,s.y,z)));
+  for(let k=0;k<2;k++){
+    const offset=k*6,reverse=k===0;
+    for(let i=0;i<2;i++){
+      const a=offset+i*2,b=a+1,c=a+2,d=a+3;
+      indices.push(...(reverse?[a,c,b,b,c,d]:[a,b,c,b,d,c]));
+    }
+  }
+  indices.push(
+    0,6,8,0,8,2, 2,8,10,2,10,4,
+    1,3,9,1,9,7, 3,5,11,3,11,9,
+    0,1,7,0,7,6, 4,10,11,4,11,5,
+  );
+  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
+  geometry.setIndex(indices);geometry.computeVertexNormals();return geometry;
 }
 
-function makeWheel(THREE, build, tireR, tireW, side){
+function cylinderBetween(THREE,parent,a,b,radius,material,segments=12){
+  const start=new THREE.Vector3(...a),end=new THREE.Vector3(...b),direction=end.clone().sub(start);
+  const part=new THREE.Mesh(new THREE.CylinderGeometry(radius,radius,direction.length(),segments),material);
+  part.position.copy(start).add(end).multiplyScalar(.5);
+  part.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),direction.normalize());
+  part.castShadow=true;part.receiveShadow=true;parent.add(part);return part;
+}
+
+function suspensionPalette(THREE,build){
+  const selected=SUSPENSION_PRODUCTS.find(x=>x.id===build.suspension)||SUSPENSION_PRODUCTS[0];
+  if(selected.id==='b14')return {spring:mat(THREE,0x195a9f,{metalness:.42,roughness:.28}),damper:mat(THREE,0xe5ba16,{metalness:.58,roughness:.24})};
+  if(selected.id==='kwv3')return {spring:mat(THREE,0x643283,{metalness:.42,roughness:.28}),damper:mat(THREE,0xd9b122,{metalness:.58,roughness:.24})};
+  return {spring:mat(THREE,0x252a2c,{metalness:.46,roughness:.38}),damper:mat(THREE,0x343a3c,{metalness:.55,roughness:.32})};
+}
+
+function addSuspensionModule(THREE,parent,build,rimR,tireW,side,front){
+  const palette=suspensionPalette(THREE,build),steel=mat(THREE,0x4c5355,{metalness:.68,roughness:.31});
+  const x=front?rimR*.10:-rimR*.04,z=-side*tireW*.31,top=rimR*.74,bottom=-rimR*.28;
+  mesh(THREE,parent,new THREE.CylinderGeometry(rimR*.055,rimR*.062,top-bottom,20),palette.damper,[x,(top+bottom)/2,z]);
+  mesh(THREE,parent,new THREE.CylinderGeometry(rimR*.13,rimR*.13,.025,28),steel,[x,top+.018,z]);
+  const points=[],turns=front?6.5:5.5,steps=72;
+  for(let i=0;i<=steps;i++){
+    const t=i/steps,angle=t*turns*Math.PI*2,r=rimR*.105;
+    points.push(new THREE.Vector3(x+Math.cos(angle)*r,bottom+rimR*.22+t*rimR*.72,z+Math.sin(angle)*r*.54));
+  }
+  const spring=new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points),steps,rimR*.016,7,false),palette.spring);
+  spring.castShadow=true;spring.receiveShadow=true;parent.add(spring);
+  cylinderBetween(THREE,parent,[x,bottom,z],[0,-rimR*.16,-side*tireW*.06],rimR*.032,steel,14);
+  cylinderBetween(THREE,parent,[-rimR*.38,-rimR*.31,z-side*tireW*.08],[0,-rimR*.18,-side*tireW*.05],rimR*.026,steel,12);
+  cylinderBetween(THREE,parent,[rimR*.38,-rimR*.31,z-side*tireW*.08],[0,-rimR*.18,-side*tireW*.05],rimR*.026,steel,12);
+}
+
+function caliperGeometry(THREE,width,height,depth){
+  const shape=new THREE.Shape();
+  shape.moveTo(-width*.42,-height*.50);shape.quadraticCurveTo(-width*.58,-height*.38,-width*.50,-height*.18);
+  shape.lineTo(-width*.36,height*.35);shape.quadraticCurveTo(-width*.27,height*.52,0,height*.50);
+  shape.lineTo(width*.26,height*.48);shape.quadraticCurveTo(width*.52,height*.38,width*.48,height*.14);
+  shape.lineTo(width*.37,-height*.34);shape.quadraticCurveTo(width*.28,-height*.51,0,-height*.50);shape.closePath();
+  const geometry=new THREE.ExtrudeGeometry(shape,{depth,bevelEnabled:true,bevelSegments:2,bevelSize:depth*.18,bevelThickness:depth*.14,curveSegments:8});
+  geometry.translate(0,0,-depth/2);geometry.computeVertexNormals();return geometry;
+}
+
+function addBrakeModule(THREE,parent,build,rimR,tireW,side,front){
+  const brake=BRAKE_PRODUCTS.find(x=>x.id===build.brakeKit)||BRAKE_PRODUCTS[0];
+  const discR=Math.min(rimR*.84,(brake.disc/2000)*(front?1:.88)),discZ=side*tireW*.11;
+  const rotor=mat(THREE,0x788083,{metalness:.82,roughness:.28}),edge=mat(THREE,0x33393a,{metalness:.72,roughness:.40});
+  [-.013,.013].forEach(offset=>mesh(THREE,parent,new THREE.CylinderGeometry(discR,discR,.008,64),rotor,[0,0,discZ+side*offset],[Math.PI/2,0,0]));
+  mesh(THREE,parent,new THREE.CylinderGeometry(discR*.36,discR*.36,.038,40),edge,[0,0,discZ],[Math.PI/2,0,0]);
+  const vent=new THREE.Mesh(new THREE.TorusGeometry(discR*.96,.006,7,64),edge);vent.position.z=discZ;parent.add(vent);
+  if(brake.id==='brembo')for(let i=0;i<18;i++){
+    const angle=i/18*Math.PI*2+.08,holeR=discR*(i%2?.68:.79);
+    mesh(THREE,parent,new THREE.CylinderGeometry(.0045,.0045,.012,8),edge,[Math.cos(angle)*holeR,Math.sin(angle)*holeR,discZ+side*.019],[Math.PI/2,0,0],false);
+  }
+  const selectedColor=CALIPER_COLORS.find(x=>x.id===build.caliper)||CALIPER_COLORS.find(x=>x.id===brake.color)||CALIPER_COLORS[0];
+  const caliperMat=mat(THREE,selectedColor.hex,{metalness:.28,roughness:.27});
+  const height=discR*(brake.pistons>1?.74:.52),width=discR*(brake.pistons>1?.35:.28),depth=brake.pistons>1?.072:.052;
+  const caliper=mesh(THREE,parent,caliperGeometry(THREE,width,height,depth),caliperMat,[-discR*.76,.01,discZ+side*.030],[0,0,-.16]);
+  caliper.scale.set(front?1:.82,front?1:.82,.82);
+}
+
+function makeWheel(THREE, build, tireR, tireW, side, front){
   const g=new THREE.Group(), preset=wheelPreset(build.wheel);
   const od=(+build.size||17)*.0254+2*((+build.tireW||225)/1000*((+build.tireAR||45)/100));
   const rimR=Math.min(tireR*.82,tireR*((+build.size||17)*.0254/Math.max(.2,od)));
@@ -3732,29 +3809,25 @@ function makeWheel(THREE, build, tireR, tireW, side){
   const tire=mesh(THREE,g,new THREE.TorusGeometry(tireR-sidewall*.52,sidewall*.52,12,48),tireMat);
   tire.scale.z=tireW/sidewall;
   const fin=WHEEL_FINISHES.find(x=>x.id===build.finish)||WHEEL_FINISHES[0];
-  const rimMat=new THREE.MeshStandardMaterial({color:fin.face,metalness:preset.steel?.55:.9,roughness:preset.steel?.38:.16});
-  const lipMat=new THREE.MeshStandardMaterial({color:fin.lip||fin.face,metalness:.96,roughness:.1});
-  const brake=BRAKE_PRODUCTS.find(x=>x.id===build.brakeKit)||BRAKE_PRODUCTS[0];
-  const discMat=mat(THREE,0x737b7d,{metalness:.78,roughness:.31});
-  const cal=CALIPER_COLORS.find(x=>x.id===(brake.color||build.caliper))||CALIPER_COLORS[0];
-  const calMat=mat(THREE,cal.hex,{metalness:.25,roughness:.3});
-  const brakeZ=side*tireW*.18,discScale=Math.min(.84,.56+(brake.disc-260)/480);
-  mesh(THREE,g,new THREE.CylinderGeometry(rimR*discScale,rimR*discScale,.035,48),discMat,[0,0,brakeZ],[Math.PI/2,0,0]);
-  mesh(THREE,g,new THREE.CylinderGeometry(rimR*.27,rimR*.27,.041,32),mat(THREE,0x3b4040,{metalness:.75,roughness:.3}),[0,0,brakeZ+side*.004],[Math.PI/2,0,0]);
-  const caliper=mesh(THREE,g,new THREE.CapsuleGeometry(rimR*.105,rimR*(brake.pistons>1?.34:.22),6,14),calMat,
-    [-rimR*discScale*.80,.02,brakeZ+side*.035],[0,0,-.18]);caliper.scale.z=brake.pistons>1?.68:.48;
-  mesh(THREE,g,new THREE.CylinderGeometry(rimR*.96,rimR*.96,tireW*.66,48,1,true),rimMat,[0,0,0],[Math.PI/2,0,0]);
-  const faceZ=side*(tireW*.49+.008),n=preset.pair?Math.max(3,preset.spokes/2):preset.spokes;
-  const spokeGeo=taperedSpokeGeometry(THREE,rimR*.17,rimR*.82,preset.thin?.028:.040,preset.wide?.075:.055,.030);
+  const rimMat=new THREE.MeshStandardMaterial({color:fin.face,metalness:preset.steel?.48:.64,roughness:preset.steel?.40:.23});
+  const lipMat=new THREE.MeshStandardMaterial({color:fin.lip||fin.face,metalness:.76,roughness:.16});
+  addSuspensionModule(THREE,g,build,rimR,tireW,side,front);
+  addBrakeModule(THREE,g,build,rimR,tireW,side,front);
+  const barrelMat=rimMat.clone();barrelMat.color.offsetHSL(0,0,-.10);barrelMat.side=THREE.DoubleSide;
+  mesh(THREE,g,new THREE.CylinderGeometry(rimR*.96,rimR*.96,tireW*.70,64,1,true),barrelMat,[0,0,0],[Math.PI/2,0,0]);
+  const faceZ=side*(tireW*.49+.008),n=(preset.pair||preset.mesh)?Math.max(3,preset.spokes/2):preset.spokes;
+  const inner=rimR*.17*(preset.hubScale||1),outer=rimR*.82,innerW=preset.innerW||(preset.thin?.028:.040),outerW=preset.outerW||(preset.wide?.075:.055);
   for(let i=0;i<n;i++){
-    const base=i/n*Math.PI*2, offsets=preset.pair?[-.055,.055]:preset.mesh?[-.035,.035]:[0];
-    offsets.forEach((off,j)=>{
-      const spoke=mesh(THREE,g,spokeGeo,rimMat,[0,0,faceZ-side*(preset.dish?.035:0)],[0,0,base+off]);
-      if(preset.mesh) spoke.rotation.z+=j?-.055:.055;
-      if(preset.concave) spoke.position.z-=side*.035;
+    const base=i/n*Math.PI*2,pair=preset.pair||preset.mesh;
+    const sweeps=pair?[-1,1]:[0];
+    sweeps.forEach(sign=>{
+      const split=outer*(preset.pairSpread||.035)+(preset.spokeSweep||0),sweep=pair?sign*split:0;
+      const spokeGeo=sweptSpokeGeometry(THREE,inner,outer,innerW,outerW,.030,sweep);
+      const spoke=mesh(THREE,g,spokeGeo,rimMat,[0,0,faceZ-side*(preset.dish?.035:0)],[0,0,base]);
+      if(preset.concave)spoke.position.z-=side*.035;
     });
   }
-  mesh(THREE,g,new THREE.CylinderGeometry(rimR*.16,rimR*.16,.045,32),rimMat,[0,0,faceZ],[Math.PI/2,0,0]);
+  mesh(THREE,g,new THREE.CylinderGeometry(rimR*.16*(preset.hubScale||1),rimR*.16*(preset.hubScale||1),.045,32),rimMat,[0,0,faceZ],[Math.PI/2,0,0]);
   for(let i=0;i<5;i++){
     const a=i/5*Math.PI*2;
     mesh(THREE,g,new THREE.CylinderGeometry(.012,.012,.018,12),lipMat,[Math.cos(a)*rimR*.105,Math.sin(a)*rimR*.105,faceZ+side*.026],[Math.PI/2,0,0],false);
@@ -3774,7 +3847,7 @@ function addWheels(THREE, root, spec, build, tireR){
     const baseTrack=axle.track||spec.width/2-tireW*.52;
     const track=baseTrack+(+(front?build.trackF:build.trackR)||0)/2000;
     const camber=+(front?build.camberF:build.camberR)||0,toe=+(front?build.toeF:build.toeR)||0;
-    const w=makeWheel(THREE,build,tireR,tireW,side);w.position.set(x,y||tireR,side*track);
+    const w=makeWheel(THREE,build,tireR,tireW,side,front);w.position.set(x,y||tireR,side*track);
     w.rotation.order='YXZ';w.rotation.x=side*THREE.MathUtils.degToRad(camber);
     w.rotation.y=side*THREE.MathUtils.degToRad(toe);
     Object.assign(w.userData,{carWheel:true,front,side,baseTrack,baseY:y||tireR});root.add(w);
@@ -4073,8 +4146,88 @@ function normalizeImportedCar(THREE, model, spec){
   model.updateMatrixWorld(true);
 }
 
+function isImportedPaintName(name){
+  return /car[\s_.-]*paint|bmwe36_(paint|leibi)/.test(name)||name.includes('carpaint_flakes_blue')||name==='eclipse_body';
+}
+
+function relaxImportedSurface(THREE,geometry,iterations=2){
+  const positions=geometry.attributes?.position,index=geometry.index;
+  if(!positions||!index||positions.count>180000)return;
+  const neighbors=Array.from({length:positions.count},()=>new Set()),edgeCounts=new Map();
+  const addEdge=(a,b)=>{
+    neighbors[a].add(b);neighbors[b].add(a);
+    const key=a<b?`${a},${b}`:`${b},${a}`;edgeCounts.set(key,(edgeCounts.get(key)||0)+1);
+  };
+  for(let i=0;i<index.count;i+=3){
+    const a=index.getX(i),b=index.getX(i+1),c=index.getX(i+2);addEdge(a,b);addEdge(b,c);addEdge(c,a);
+  }
+  const boundary=new Set();edgeCounts.forEach((count,key)=>{
+    if(count!==1)return;const [a,b]=key.split(',').map(Number);boundary.add(a);boundary.add(b);
+  });
+  geometry.computeBoundingBox();
+  const limit=geometry.boundingBox.getSize(new THREE.Vector3()).length()*.002,cosine=Math.cos(THREE.MathUtils.degToRad(42));
+  for(let pass=0;pass<iterations;pass++){
+    geometry.computeVertexNormals();
+    const normals=geometry.attributes.normal,source=Float32Array.from(positions.array),next=Float32Array.from(source);
+    for(let i=0;i<positions.count;i++){
+      if(boundary.has(i)||neighbors[i].size<3)continue;
+      const ix=i*3,nx=normals.getX(i),ny=normals.getY(i),nz=normals.getZ(i);let sx=0,sy=0,sz=0,count=0;
+      neighbors[i].forEach(j=>{
+        if(nx*normals.getX(j)+ny*normals.getY(j)+nz*normals.getZ(j)<cosine)return;
+        const jx=j*3;sx+=source[jx];sy+=source[jx+1];sz+=source[jx+2];count++;
+      });
+      if(count<3)continue;
+      const normalDelta=((sx/count-source[ix])*nx+(sy/count-source[ix+1])*ny+(sz/count-source[ix+2])*nz)*.48;
+      const move=Math.max(-limit,Math.min(limit,normalDelta));
+      next[ix]+=nx*move;next[ix+1]+=ny*move;next[ix+2]+=nz*move;
+    }
+    positions.array.set(next);positions.needsUpdate=true;
+  }
+  geometry.computeBoundingBox();geometry.computeBoundingSphere();
+}
+
+function smoothImportedPaintNormals(THREE,model,spec){
+  const config=car3DBodyConfig(spec.id);if(!config.smoothPaintNormals)return;
+  const cosine=Math.cos(THREE.MathUtils.degToRad(48));
+  model.traverse(o=>{
+    if(!o.isMesh||!o.geometry?.attributes?.position)return;
+    const materials=Array.isArray(o.material)?o.material:[o.material];
+    if(!materials.some(m=>isImportedPaintName((m?.name||'').toLowerCase())))return;
+    const geometry=o.geometry,positions=geometry.attributes.position;
+    if(config.relaxPaintSurface)relaxImportedSurface(THREE,geometry,config.relaxPaintSurface===true?2:config.relaxPaintSurface);
+    geometry.deleteAttribute('normal');geometry.computeVertexNormals();
+    const normals=geometry.attributes.normal,source=Float32Array.from(normals.array);
+    geometry.computeBoundingBox();
+    const diagonal=geometry.boundingBox.getSize(new THREE.Vector3()).length();
+    const tolerance=Math.max(1e-6,diagonal*1e-5),groups=new Map();
+    for(let i=0;i<positions.count;i++){
+      const key=`${Math.round(positions.getX(i)/tolerance)},${Math.round(positions.getY(i)/tolerance)},${Math.round(positions.getZ(i)/tolerance)}`;
+      const group=groups.get(key);if(group)group.push(i);else groups.set(key,[i]);
+    }
+    groups.forEach(group=>{
+      if(group.length<2)return;
+      group.forEach(i=>{
+        const ix=i*3,nx=source[ix],ny=source[ix+1],nz=source[ix+2];let sx=0,sy=0,sz=0;
+        group.forEach(j=>{
+          const jx=j*3,jxv=source[jx],jyv=source[jx+1],jzv=source[jx+2];
+          if(nx*jxv+ny*jyv+nz*jzv>=cosine){sx+=jxv;sy+=jyv;sz+=jzv;}
+        });
+        const length=Math.hypot(sx,sy,sz)||1;normals.setXYZ(i,sx/length,sy/length,sz/length);
+      });
+    });
+    normals.needsUpdate=true;
+  });
+}
+
+function makeImportedMaterialOpaque(material){
+  material.transparent=false;material.opacity=1;material.depthWrite=true;material.alphaTest=0;
+  if('transmission' in material)material.transmission=0;
+  if('thickness' in material)material.thickness=0;
+}
+
 function styleImportedCar(THREE, model, spec, build){
-  const paintDef=car3DPaint(spec,build),paint=physicalPaint(THREE,paintDef.hex);
+  const config=car3DBodyConfig(spec.id),paintDef=car3DPaint(spec,build);
+  const paint=physicalPaint(THREE,paintDef.hex,{roughness:config.paintRoughness});
   const fin=WHEEL_FINISHES.find(x=>x.id===build.finish)||WHEEL_FINISHES[0];
   model.traverse(o=>{
     if(!o.isMesh) return;
@@ -4084,7 +4237,7 @@ function styleImportedCar(THREE, model, spec, build){
     const styled=materials.map(m=>{
       const name=(m.name||'').toLowerCase();
       if(paintSideSkirt){const p=paint.clone();p.name=m.name;return p;}
-      if(/car[\s_.-]*paint|bmwe36_(paint|leibi)/.test(name)||name.includes('carpaint_flakes_blue')||name==='eclipse_body'
+      if(isImportedPaintName(name)
         ||spec.id==='cabrio'&&name.includes('bmwe36_signal_l')){
         const p=paint.clone();p.name=m.name;return p;
       }
@@ -4095,13 +4248,34 @@ function styleImportedCar(THREE, model, spec, build){
         const r=m.clone();r.color.set(fin.face);r.metalness=.82;r.roughness=.18;return r;
       }
       const r=m.clone();
-      if(name.includes('glass')||name.includes('window')){
+      const lampGlass=/(red|orange|clear).?glass|lamp|light.?lens/.test(name);
+      const windowGlass=name.includes('window')||name.includes('windscreen')||name.includes('windshield')
+        ||name.includes('windshild')||(name.includes('glass')&&!lampGlass);
+      if(config.repairMaterials&&!windowGlass&&!lampGlass)makeImportedMaterialOpaque(r);
+      if(windowGlass){
         const tint=Math.max(0,Math.min(90,+build.tint||0));
-        r.map=null;r.alphaMap=null;r.color.set(tint>55?0x11191c:tint>20?0x496a70:0x91afb5);r.transparent=true;
-        r.opacity=Math.min(.84,.58+tint*.003);r.depthWrite=false;r.metalness=.04;r.roughness=.12;r.side=THREE.DoubleSide;
+        r.map=null;r.alphaMap=null;r.color.set(tint>55?0x111819:tint>20?0x3c494b:0xc1cbcc);r.transparent=true;
+        r.opacity=Math.min(.72,.14+tint*.0064);r.depthWrite=false;r.metalness=0;r.roughness=.04;r.side=THREE.DoubleSide;
+        if('transmission' in r)r.transmission=0;if('thickness' in r)r.thickness=.003;
       }
-      if(name.includes('leather')||name.includes('cloth')||name.includes('fabric')||name.includes('carpet')){
+      if(lampGlass){
+        r.transparent=true;r.opacity=.72;r.depthWrite=false;r.metalness=.02;r.roughness=.10;
+        if('transmission' in r)r.transmission=.04;
+      }
+      if(name.includes('interior')||name.includes('leather')||name.includes('cloth')||name.includes('fabric')||name.includes('carpet')){
+        makeImportedMaterialOpaque(r);
         r.color.set(0x202321);r.metalness=0;r.roughness=.78;
+      }
+      if(/(^|[_. -])(tire|tyre)/.test(name)){
+        makeImportedMaterialOpaque(r);r.color.set(0x111312);r.metalness=0;r.roughness=.88;
+      }
+      if(/brake.?disk|brake.?disc/.test(name)){
+        makeImportedMaterialOpaque(r);r.color.set(0x697174);r.metalness=.76;r.roughness=.32;
+      }
+      if(name.includes('chrome')){
+        makeImportedMaterialOpaque(r);r.metalness=.94;r.roughness=.12;
+      }else if(name.includes('mattemetal')){
+        makeImportedMaterialOpaque(r);r.metalness=.72;r.roughness=.34;
       }
       return r;
     });
@@ -4137,7 +4311,7 @@ function setImportedVisibility(model, spec, build){
       const name=(o.name||'').toLowerCase(),mats=o.material?(Array.isArray(o.material)?o.material:[o.material]):[];
       const namedWheel=/^(fl|fr|rl|rr)_(tire|rim)$/.test(name)||/^rim(\.\d+)?$|^tire(\.\d+)?$/.test(name);
       const wheelMaterialIndexes=mats.reduce((indexes,m,i)=>{
-        if(/(^|[^a-z])(tire|tyre|rim|wheel)([^a-z]|$)/.test((m.name||'').toLowerCase())) indexes.push(i);
+        if(/(^|[^a-z])(tire|tyre|rim|wheel|brake.?disk|brake.?disc)([^a-z]|$)/.test((m.name||'').toLowerCase())) indexes.push(i);
         return indexes;
       },[]);
       if(namedWheel||(mats.length===1&&wheelMaterialIndexes.length)) o.visible=false;
@@ -4154,6 +4328,7 @@ async function buildImportedCarModel(THREE, GLTFLoader, MeshoptDecoder, spec, bu
   root.userData.viewDirection=car3DBodyConfig(spec.id).viewDirection;
   if(spec.id==='sedan')removeImportedGround(THREE,model);
   normalizeImportedCar(THREE,model,spec);
+  smoothImportedPaintNormals(THREE,model,spec);
   const paint=styleImportedCar(THREE,model,spec,build);setImportedVisibility(model,spec,build);
   const dropF=Math.max(0,+build.dropF||+build.drop||0),dropR=Math.max(0,+build.dropR||+build.drop||0);
   const baseY=model.position.y;model.position.y-=(dropF+dropR)/2000;model.rotation.z=(dropF-dropR)/1000/Math.max(1,spec.wheelbase);
@@ -4866,7 +5041,7 @@ function partPanel(b, c){
       <div class="t-cap" style="margin-top:var(--s3);margin-bottom:6px">輪圈顏色</div>
       <div class="swx">${WHEEL_FINISHES.map(f=>`<span class="sw ${b.finish===f.id?'on':''}" style="background:${f.face}"
         title="${esc(f.name)}" onclick="setB('finish','${f.id}')"></span>`).join('')}</div>
-      <div class="hint">官方商品圖用來核對款式；3D 輪圈是依輻條數與凹面特徵建立的比例預覽，不冒充原廠 CAD。</div></div>`;
+      <div class="hint">官方商品圖用來核對款式；3D 輪圈依原廠公開的輻條結構、凹面與輪唇特徵建立，不冒充原廠 CAD。</div></div>`;
   }
   if(DPART==='tire'){
     const od = tireOD({w:b.tireW,ar:b.tireAR,rim:b.size});

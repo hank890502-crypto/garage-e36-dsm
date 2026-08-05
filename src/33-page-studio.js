@@ -101,7 +101,7 @@ function partPanel(b, c){
       <div class="t-cap" style="margin-top:var(--s3);margin-bottom:6px">輪圈顏色</div>
       <div class="swx">${WHEEL_FINISHES.map(f=>`<span class="sw ${b.finish===f.id?'on':''}" style="background:${f.face}"
         title="${esc(f.name)}" onclick="setB('finish','${f.id}')"></span>`).join('')}</div>
-      <div class="hint">官方商品圖用來核對款式；3D 輪圈是依輻條數與凹面特徵建立的比例預覽，不冒充原廠 CAD。</div></div>`;
+      <div class="hint">官方商品圖用來核對款式；3D 輪圈依原廠公開的輻條結構、凹面與輪唇特徵建立，不冒充原廠 CAD。</div></div>`;
   }
   if(DPART==='tire'){
     const od = tireOD({w:b.tireW,ar:b.tireAR,rim:b.size});

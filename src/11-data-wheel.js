@@ -64,16 +64,16 @@ const FITMENT_GUIDE = [
 
 /* 輪圈樣式：spoke 幾何與 face profile 會直接驅動 3D 輪圈。 */
 const WHEEL_STYLES = [
-  {id:'st5',   brand:'BMW',name:'Style 5',  cat:'五雙輻',spokes:10,pair:true},
-  {id:'st42',  brand:'BMW',name:'Style 42', cat:'交叉輻',spokes:20,mesh:true},
-  {id:'st39',  brand:'BMW M',name:'Style 39 DS2',cat:'五雙輻',spokes:10,pair:true},
-  {id:'st24',  brand:'BMW M',name:'Style 24 LTW',cat:'五雙輻',spokes:10,pair:true},
-  {id:'bbs-lm',brand:'BBS',name:'LM',cat:'交叉輻鍛造二片式',spokes:20,mesh:true,dish:true,
+  {id:'st5',   brand:'BMW',name:'Style 5',  cat:'五雙輻',spokes:10,pair:true,pairSpread:.034,innerW:.040,outerW:.052},
+  {id:'st42',  brand:'BMW',name:'Style 42', cat:'交叉輻',spokes:20,mesh:true,spokeSweep:.030,innerW:.026,outerW:.038},
+  {id:'st39',  brand:'BMW M',name:'Style 39 DS2',cat:'五雙輻',spokes:10,pair:true,pairSpread:.042,innerW:.050,outerW:.071},
+  {id:'st24',  brand:'BMW M',name:'Style 24 LTW',cat:'五雙輻',spokes:10,pair:true,pairSpread:.030,innerW:.040,outerW:.064},
+  {id:'bbs-lm',brand:'BBS',name:'LM',cat:'交叉輻鍛造二片式',spokes:20,mesh:true,dish:true,spokeSweep:.034,innerW:.022,outerW:.032,
    img:'https://bbs-japan.co.jp/en/wp-content/uploads/sites/2/2016/10/newLM.jpg',src:'bbs_lm'},
-  {id:'arc8',brand:'APEX',name:'ARC-8',cat:'十輻 Flow Formed',spokes:10,thin:true,concave:true,src:'apex_arc8'},
-  {id:'rpf1',brand:'Enkei',name:'RPF1',cat:'六雙輻 MAT',spokes:12,pair:true,thin:true,
+  {id:'arc8',brand:'APEX',name:'ARC-8',cat:'十輻 Flow Formed',spokes:10,thin:true,concave:true,innerW:.030,outerW:.048,src:'apex_arc8'},
+  {id:'rpf1',brand:'Enkei',name:'RPF1',cat:'六雙輻 MAT',spokes:12,pair:true,thin:true,pairSpread:.052,innerW:.026,outerW:.039,spokeSweep:.010,hubScale:.88,
    img:'https://enkei.com/wp-content/uploads/2019/12/ENKEI-RPF1-SP-144-WEB-510x510.jpg',src:'enkei_rpf1'},
-  {id:'st66', brand:'BMW M',name:'Style 66',cat:'五雙輻',spokes:10,pair:true,wide:true},
+  {id:'st66', brand:'BMW M',name:'Style 66',cat:'五雙輻',spokes:10,pair:true,wide:true,pairSpread:.037,innerW:.055,outerW:.086},
   {id:'steel',brand:'BMW',name:'原廠鋼圈',cat:'鋼圈',spokes:12,steel:true},
 ];
 
