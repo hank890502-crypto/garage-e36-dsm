@@ -16,7 +16,9 @@ const blankCar = () => ({
   wheelW:7, wheelET:47, tire:'205/60R15',
   lastSvcKm:0, lastSvcDate:'',
   photos:{}, notes:'',
-  build:{ paint:'alpine', wheel:'st42', finish:'silver', size:17, tireW:245, tireAR:40,
+  /* rimJ / rimET 為 null 代表「依胎寬自動推估」。3D 預覽與相容性判斷共用同一組值，
+     見 11-data-wheel.js 的 rimJOf() / rimETOf()。 */
+  build:{ paint:'alpine', wheel:'st42', finish:'silver', size:17, tireW:245, tireAR:40, rimJ:null, rimET:null,
           tireProduct:'street', suspension:'stock', brakeKit:'stock', tintProduct:'none', aeroKit:'stock',
           drop:0, dropF:0, dropR:0, camberF:-1.0, camberR:-1.5, toeF:0.00, toeR:0.10,
           caster:7.0, trackF:0, trackR:0, pressureF:34, pressureR:36,

@@ -84,7 +84,25 @@ function wheelCheck(c, mod){
   const H = hubOf(c);
   R.push({k:'g', t:`孔距 ${H.pcd}、中心孔 ${H.bore} mm、螺絲 ${H.bolt} ${H.seat} — ${isE36(c)?'E36':'2G Eclipse'} 全車系一致`});
 
-  // 外緣
+  // 輪胎實際總寬：會磨葉子板的是輪胎，不是輪圈 J 寬
+  const baseT = parseTire(base.tire), modT = parseTire(m.tire);
+  if(baseT && modT){
+    const baseEdge = baseT.w ? (tireOverallWidth(baseT.w, base.width)/2 - base.et) : null;
+    const modEdge  = tireOverallWidth(modT.w, m.width)/2 - m.et;
+    if(baseEdge !== null){
+      const tyreDelta = modEdge - baseEdge;
+      R.push({k: tyreDelta>22?'r':tyreDelta>10?'y':'g',
+        t:`輪胎最外緣較原廠${tyreDelta>=0?'外凸':'內縮'} ${Math.abs(tyreDelta).toFixed(1)} mm`
+          +`（輪胎總寬 ${tireOverallWidth(modT.w, m.width).toFixed(0)} mm，含保護肋；`
+          +`${m.width}J 上的實際斷面寬 ${tireSectionWidth(modT.w, m.width).toFixed(0)} mm，非標稱 ${modT.w}）`
+          +' — 葉子板干涉看的是這個值，不是輪圈 J 寬'});
+    }
+    const rr = tireRimRange(modT.w, modT.ar);
+    if(m.width < rr[0] || m.width > rr[1])
+      R.push({k:'r', t:`${modT.w}/${modT.ar} 的 ETRTO 允許輪圈寬約 ${rr[0]}J–${rr[1]}J，目前 ${m.width}J 超出範圍 — 這個組合實務上不成立`});
+  }
+
+  // 外緣（輪圈 J 寬基準，業界適配慣用值）
   if(g.outerDelta > 22) R.push({k:'r', t:`外緣較原廠外凸 ${g.outerDelta.toFixed(1)} mm — 幾乎確定磨葉子板，需壓平＋負外傾，且台灣規定輪胎不得超出車身`});
   else if(g.outerDelta > 10) R.push({k:'y', t:`外緣較原廠外凸 ${g.outerDelta.toFixed(1)} mm — 建議壓平葉子板並加負外傾`});
   else if(g.outerDelta > 0) R.push({k:'g', t:`外緣較原廠外凸 ${g.outerDelta.toFixed(1)} mm — 一般在可接受範圍`});

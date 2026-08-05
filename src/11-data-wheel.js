@@ -152,3 +152,67 @@ function wheelGeom(base, mod){
 
 /* 台灣法規：輪胎外徑誤差 2% 門檻 */
 const TIRE_OD_LIMIT_PCT = 2.0;
+
+/* ==========================================================================
+   配輪幾何：J 寬、ET、輪胎實際斷面寬
+   3D 預覽與相容性計算「都」呼叫這一組，確保兩邊用同一套幾何基準。
+   ========================================================================== */
+
+/* ETRTO 量測輪圈（design rim）：輪胎的標稱斷面寬是在這個輪圈寬上量的。
+   來源：Tire Rack / ETRTO design rim。經驗式，非查表。 */
+function tireMeasuringRim(sectionMm){
+  return Math.round((+sectionMm/25.4 - 1.6) * 2) / 2;
+}
+
+/* 輪胎實際斷面寬：每偏離量測輪圈 0.5 吋，斷面寬約變化 5 mm。
+   來源：Tire Rack「How to Determine the Section Width of a Tire」、ETRTO design rim。 */
+const TIRE_WIDTH_PER_HALF_INCH = 5.0;
+function tireSectionWidth(sectionMm, rimJ){
+  const ref = tireMeasuringRim(sectionMm);
+  const j = +rimJ || ref;
+  return +sectionMm + (j - ref) * 2 * TIRE_WIDTH_PER_HALF_INCH;
+}
+/* 輪胎總寬（含保護肋與凸字）約比斷面寬多 3–4 mm。會磨葉子板的是這個值，不是 J 寬。 */
+function tireOverallWidth(sectionMm, rimJ){ return tireSectionWidth(sectionMm, rimJ) + 3.6; }
+
+/* ETRTO 允許輪圈寬區間（以量測輪圈為中心，上下各 1 吋，低扁平比略窄） */
+function tireRimRange(sectionMm, ar){
+  const ref = tireMeasuringRim(sectionMm), span = (+ar <= 40) ? 1.0 : 1.5;
+  return [Math.round((ref - span) * 2) / 2, Math.round((ref + span) * 2) / 2];
+}
+
+/* 未指定 J 寬時的預設：量測輪圈 +0.5 吋（性能取向的常見配法） */
+function autoRimJ(build){
+  return Math.round((tireMeasuringRim(+build.tireW || 225) + 0.5) * 2) / 2;
+}
+
+/* 未指定 ET 時的預設：依 J 寬給實務常見值（Apex Wheels 適配指南區間） */
+function autoRimET(build, stockET){
+  if((+build.size || 17) <= 15) return +stockET || 47;
+  const j = rimJOf(build);
+  if(j <= 7.5) return 45;
+  if(j <= 8)   return 42;
+  if(j <= 8.5) return 40;
+  if(j <= 9)   return 35;
+  return 30;
+}
+
+/* 對外唯一入口。build.rimJ / build.rimET 為 null（或空字串）代表「自動推估」。
+   注意：+null === 0 且 Number.isFinite(0) === true，所以一定要先判斷 null，
+   否則「自動」會被當成使用者指定了 ET0。 */
+function rimValue(v){
+  if(v===null||v===undefined||v==='') return null;
+  const n=+v; return Number.isFinite(n)?n:null;
+}
+function rimJOf(build){
+  const v=rimValue(build?.rimJ);
+  return (v!==null&&v>0)?v:autoRimJ(build||{});
+}
+function rimETOf(build, stockET){
+  const v=rimValue(build?.rimET);
+  return v!==null?v:autoRimET(build||{}, stockET);
+}
+function rimFitmentIsAuto(build){
+  const j=rimValue(build?.rimJ), e=rimValue(build?.rimET);
+  return !(j!==null&&j>0) || e===null;
+}

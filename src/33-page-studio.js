@@ -113,6 +113,9 @@ function partPanel(b, c){
   }
   if(DPART==='tire'){
     const od = tireOD({w:b.tireW,ar:b.tireAR,rim:b.size});
+    const auto = rimFitmentIsAuto(b), j = rimJOf(b), et = rimETOf(b, stockET(c));
+    const range = tireRimRange(b.tireW, b.tireAR);
+    const inRange = j>=range[0] && j<=range[1];
     body = `<div style="padding-top:var(--s2)">
       <div class="product-grid compact">${TIRE_PRODUCTS.map(x=>productOption(x,b.tireProduct,'tireProduct')).join('')}</div>
       ${sliderInput('輪圈尺寸','吋','size',14,19,1,b.size)}
@@ -120,6 +123,22 @@ function partPanel(b, c){
       ${sliderInput('扁平比','%','tireAR',25,70,5,b.tireAR)}
       <div class="kv"><span>規格</span><b>${b.tireW}/${b.tireAR} R${b.size}</b></div>
       <div class="kv"><span>外徑</span><b>${od.toFixed(0)} mm</b></div>
+
+      <div class="t-cap" style="margin-top:var(--s3);margin-bottom:6px">輪圈寬與 ET${auto?'（目前為推估值）':''}</div>
+      <label class="chk"><input type="checkbox" ${auto?'checked':''}
+        onchange="setRimAuto(this.checked)">依胎寬自動推估</label>
+      ${auto?`<div class="kv"><span>推估輪圈寬</span><b>${j.toFixed(1)}J</b></div>
+      <div class="kv"><span>推估 ET</span><b>ET${et.toFixed(0)}</b></div>`
+      :`${sliderInput('輪圈寬','J','rimJ',5.5,11,0.5,j)}
+        ${sliderInput('ET（偏距）','mm','rimET',0,60,1,et)}`}
+      <div class="kv"><span>輪胎實際斷面寬</span><b>${tireSectionWidth(b.tireW,j).toFixed(0)} mm</b></div>
+      <div class="kv"><span>輪胎總寬（會磨葉子板的值）</span><b>${tireOverallWidth(b.tireW,j).toFixed(0)} mm</b></div>
+      <div class="note ${inRange?'b':'y'}" style="margin-top:var(--s2)">
+        ${b.tireW}/${b.tireAR} 的 ETRTO 允許輪圈寬約 <b>${range[0]}J–${range[1]}J</b>，
+        目前 ${j.toFixed(1)}J ${inRange?'在範圍內':'<b>超出範圍</b>，實際不建議這樣配'}。
+        斷面寬每偏離量測輪圈 0.5 吋約變化 5 mm（ETRTO／Tire Rack）。
+        ${auto?'推估值只是常見配法，不是查到的規格 —— 有實際輪圈資料請關掉自動推估自己填。':'3D 預覽與相容性判斷都吃這一組數字。'}
+      </div>
       <div class="note b" style="margin-top:var(--s2)">${platOf(c)==='dsm2g'
         ?'1997–1999 GSX 原廠為 <b>17×6.5JJ、ET46、215/50R17 90V</b>。變更尺寸時，外徑仍須控制在原廠值 ±2% 內。'
         :'E36 最佳解通常是 <b>245/40R17</b>，外徑僅 +0.13%、速度表幾乎零誤差。避開 235/40R18（+2.90%，超出台灣 2% 門檻）。'}</div></div>`;
@@ -196,17 +215,29 @@ function chk(k, label, warn){
     <span>${esc(label)}</span>${warn?`<span class="rt" style="color:var(--red)">${esc(warn)}</span>`:''}</label>`;
 }
 function countAero(b){ return ['lip','skirt','diffuser','hood','wide'].filter(k=>b[k]).length + (b.wing!=='none'?1:0) + (b.tips&&b.tips!=='single'&&b.tips!=='none'?1:0); }
+/* 這台車的原廠 ET（3D 的 hubFace 基準與推估值都靠它） */
+function stockET(c){
+  if(c&&platOf(c)==='dsm2g')return eclipseStockFitment(c).wheelET;
+  return +(c?.wheelET)||47;
+}
+/* estWidth / estET 保留舊名給既有呼叫點，但一律轉呼叫 11-data-wheel.js 的單一來源，
+   確保 3D 預覽與相容性計算用的是同一組 J 寬與 ET。 */
 function estWidth(b){
   const c=car();
-  if(c&&platOf(c)==='dsm2g'&&b.wheel==='ecl-oem')return eclipseStockFitment(c).wheelW;
-  return Math.round((b.tireW/25.4 - 1.6)*2)/2;
+  if(c&&platOf(c)==='dsm2g'&&b.wheel==='ecl-oem'&&rimFitmentIsAuto(b))return eclipseStockFitment(c).wheelW;
+  return rimJOf(b);
 }
 function estET(b){
   const c=car();
-  if(c&&platOf(c)==='dsm2g'&&b.wheel==='ecl-oem')return eclipseStockFitment(c).wheelET;
-  const w = estWidth(b);
-  if(b.size<=15) return 47;
-  if(w<=7.5) return 45; if(w<=8) return 42; if(w<=8.5) return 40; if(w<=9) return 35; return 30;
+  if(c&&platOf(c)==='dsm2g'&&b.wheel==='ecl-oem'&&rimFitmentIsAuto(b))return eclipseStockFitment(c).wheelET;
+  return rimETOf(b, stockET(c));
+}
+/* 切換「自動推估 / 自己填」。關掉自動時，先把目前的推估值寫進去當起點。 */
+function setRimAuto(auto){
+  const c=car(); if(!c) return;
+  if(auto){ c.build.rimJ=null; c.build.rimET=null; }
+  else { c.build.rimJ=rimJOf(c.build); c.build.rimET=rimETOf(c.build, stockET(c)); }
+  saveDB(); render();
 }
 function alignmentScores(b){
   const tire=TIRE_PRODUCTS.find(x=>x.id===b.tireProduct)||TIRE_PRODUCTS[0];

@@ -1194,6 +1194,70 @@ function wheelGeom(base, mod){
 /* 台灣法規：輪胎外徑誤差 2% 門檻 */
 const TIRE_OD_LIMIT_PCT = 2.0;
 
+/* ==========================================================================
+   配輪幾何：J 寬、ET、輪胎實際斷面寬
+   3D 預覽與相容性計算「都」呼叫這一組，確保兩邊用同一套幾何基準。
+   ========================================================================== */
+
+/* ETRTO 量測輪圈（design rim）：輪胎的標稱斷面寬是在這個輪圈寬上量的。
+   來源：Tire Rack / ETRTO design rim。經驗式，非查表。 */
+function tireMeasuringRim(sectionMm){
+  return Math.round((+sectionMm/25.4 - 1.6) * 2) / 2;
+}
+
+/* 輪胎實際斷面寬：每偏離量測輪圈 0.5 吋，斷面寬約變化 5 mm。
+   來源：Tire Rack「How to Determine the Section Width of a Tire」、ETRTO design rim。 */
+const TIRE_WIDTH_PER_HALF_INCH = 5.0;
+function tireSectionWidth(sectionMm, rimJ){
+  const ref = tireMeasuringRim(sectionMm);
+  const j = +rimJ || ref;
+  return +sectionMm + (j - ref) * 2 * TIRE_WIDTH_PER_HALF_INCH;
+}
+/* 輪胎總寬（含保護肋與凸字）約比斷面寬多 3–4 mm。會磨葉子板的是這個值，不是 J 寬。 */
+function tireOverallWidth(sectionMm, rimJ){ return tireSectionWidth(sectionMm, rimJ) + 3.6; }
+
+/* ETRTO 允許輪圈寬區間（以量測輪圈為中心，上下各 1 吋，低扁平比略窄） */
+function tireRimRange(sectionMm, ar){
+  const ref = tireMeasuringRim(sectionMm), span = (+ar <= 40) ? 1.0 : 1.5;
+  return [Math.round((ref - span) * 2) / 2, Math.round((ref + span) * 2) / 2];
+}
+
+/* 未指定 J 寬時的預設：量測輪圈 +0.5 吋（性能取向的常見配法） */
+function autoRimJ(build){
+  return Math.round((tireMeasuringRim(+build.tireW || 225) + 0.5) * 2) / 2;
+}
+
+/* 未指定 ET 時的預設：依 J 寬給實務常見值（Apex Wheels 適配指南區間） */
+function autoRimET(build, stockET){
+  if((+build.size || 17) <= 15) return +stockET || 47;
+  const j = rimJOf(build);
+  if(j <= 7.5) return 45;
+  if(j <= 8)   return 42;
+  if(j <= 8.5) return 40;
+  if(j <= 9)   return 35;
+  return 30;
+}
+
+/* 對外唯一入口。build.rimJ / build.rimET 為 null（或空字串）代表「自動推估」。
+   注意：+null === 0 且 Number.isFinite(0) === true，所以一定要先判斷 null，
+   否則「自動」會被當成使用者指定了 ET0。 */
+function rimValue(v){
+  if(v===null||v===undefined||v==='') return null;
+  const n=+v; return Number.isFinite(n)?n:null;
+}
+function rimJOf(build){
+  const v=rimValue(build?.rimJ);
+  return (v!==null&&v>0)?v:autoRimJ(build||{});
+}
+function rimETOf(build, stockET){
+  const v=rimValue(build?.rimET);
+  return v!==null?v:autoRimET(build||{}, stockET);
+}
+function rimFitmentIsAuto(build){
+  const j=rimValue(build?.rimJ), e=rimValue(build?.rimET);
+  return !(j!==null&&j>0) || e===null;
+}
+
 /* ===== 12-data-products.js ===== */
 /* ==========================================================================
    實際改裝產品資料
@@ -2840,7 +2904,9 @@ const blankCar = () => ({
   wheelW:7, wheelET:47, tire:'205/60R15',
   lastSvcKm:0, lastSvcDate:'',
   photos:{}, notes:'',
-  build:{ paint:'alpine', wheel:'st42', finish:'silver', size:17, tireW:245, tireAR:40,
+  /* rimJ / rimET 為 null 代表「依胎寬自動推估」。3D 預覽與相容性判斷共用同一組值，
+     見 11-data-wheel.js 的 rimJOf() / rimETOf()。 */
+  build:{ paint:'alpine', wheel:'st42', finish:'silver', size:17, tireW:245, tireAR:40, rimJ:null, rimET:null,
           tireProduct:'street', suspension:'stock', brakeKit:'stock', tintProduct:'none', aeroKit:'stock',
           drop:0, dropF:0, dropR:0, camberF:-1.0, camberR:-1.5, toeF:0.00, toeR:0.10,
           caster:7.0, trackF:0, trackR:0, pressureF:34, pressureR:36,
@@ -3095,7 +3161,25 @@ function wheelCheck(c, mod){
   const H = hubOf(c);
   R.push({k:'g', t:`孔距 ${H.pcd}、中心孔 ${H.bore} mm、螺絲 ${H.bolt} ${H.seat} — ${isE36(c)?'E36':'2G Eclipse'} 全車系一致`});
 
-  // 外緣
+  // 輪胎實際總寬：會磨葉子板的是輪胎，不是輪圈 J 寬
+  const baseT = parseTire(base.tire), modT = parseTire(m.tire);
+  if(baseT && modT){
+    const baseEdge = baseT.w ? (tireOverallWidth(baseT.w, base.width)/2 - base.et) : null;
+    const modEdge  = tireOverallWidth(modT.w, m.width)/2 - m.et;
+    if(baseEdge !== null){
+      const tyreDelta = modEdge - baseEdge;
+      R.push({k: tyreDelta>22?'r':tyreDelta>10?'y':'g',
+        t:`輪胎最外緣較原廠${tyreDelta>=0?'外凸':'內縮'} ${Math.abs(tyreDelta).toFixed(1)} mm`
+          +`（輪胎總寬 ${tireOverallWidth(modT.w, m.width).toFixed(0)} mm，含保護肋；`
+          +`${m.width}J 上的實際斷面寬 ${tireSectionWidth(modT.w, m.width).toFixed(0)} mm，非標稱 ${modT.w}）`
+          +' — 葉子板干涉看的是這個值，不是輪圈 J 寬'});
+    }
+    const rr = tireRimRange(modT.w, modT.ar);
+    if(m.width < rr[0] || m.width > rr[1])
+      R.push({k:'r', t:`${modT.w}/${modT.ar} 的 ETRTO 允許輪圈寬約 ${rr[0]}J–${rr[1]}J，目前 ${m.width}J 超出範圍 — 這個組合實務上不成立`});
+  }
+
+  // 外緣（輪圈 J 寬基準，業界適配慣用值）
   if(g.outerDelta > 22) R.push({k:'r', t:`外緣較原廠外凸 ${g.outerDelta.toFixed(1)} mm — 幾乎確定磨葉子板，需壓平＋負外傾，且台灣規定輪胎不得超出車身`});
   else if(g.outerDelta > 10) R.push({k:'y', t:`外緣較原廠外凸 ${g.outerDelta.toFixed(1)} mm — 建議壓平葉子板並加負外傾`});
   else if(g.outerDelta > 0) R.push({k:'g', t:`外緣較原廠外凸 ${g.outerDelta.toFixed(1)} mm — 一般在可接受範圍`});
@@ -3494,12 +3578,15 @@ function repairDB(){
 const CAR3D_BODY_IDS = new Set(['coupe','sedan','touring','compact','cabrio','coupe2g']);
 const CAR3D_INSTANCES = [];
 const CAR3D_MODEL_URLS = {
-  coupe:'./assets/models/e36/scene.gltf',
+  coupe:'./assets/models/e36-coupe/model.glb',
   sedan:'./assets/models/e36-sedan/model.glb',
   compact:'./assets/models/e36-compact/model.glb',
   touring:'./assets/models/e36-touring/model.glb',
   cabrio:'./assets/models/e36-cabrio/model.glb',
   coupe2g:'./assets/models/eclipse/scene.gltf',
+  /* E36 M3 專用車體。由 Sketchfab 的 source OBJ 自行轉檔：
+     已移除場景地板與原始輪組（輪組由 app 依 datum 重建），63,433 → 21,392 面。 */
+  'coupe-m3':'./assets/models/e36-m3/model.glb',
 };
 /*
  * Every donor model uses a different origin and wheel layout. These values are
@@ -3507,18 +3594,21 @@ const CAR3D_MODEL_URLS = {
  * between body styles.
  */
 const CAR3D_BODY_CONFIG = {
-  coupe:{wheelMode:'replace',frontX:-1.486,rearX:1.263,frontY:.300,rearY:.300,frontTrack:.752,rearTrack:.752,
-    hideNodes:['rim','rim001','rim002','rim003','Cylinder002','Cylinder004','Cylinder005','Cylinder006']},
-  sedan:{wheelMode:'native',hideNodes:['Object_5']},
-  compact:{wheelMode:'replace',flipX:true,yOffset:-.950,viewDirection:[.68,.28,.68],
-    frontX:1.450,rearX:-1.260,frontY:.300,rearY:.300,frontTrack:.720,rearTrack:.735},
-  touring:{wheelMode:'replace',frontX:-1.472,rearX:1.229,frontY:.311,rearY:.311,frontTrack:.735,rearTrack:.745,
-    repairMaterials:true,smoothPaintNormals:true,relaxPaintSurface:4,paintRoughness:.33},
-  cabrio:{wheelMode:'replace',frontX:-1.350,rearX:1.256,frontY:.300,rearY:.314,frontTrack:.740,rearTrack:.755},
+  /* 2025 版 E36 車體網格：輪組已在轉檔時移除（由 app 依 datum 重建），
+     所以整車 bbox 的最低點是車體而非輪胎，yOffset 用來把車身抬回實測的離地高。
+     舊版那些 repairMaterials / smoothPaintNormals / relaxPaintSurface 是為了補救
+     前一批網格的破面與尖角，新網格不需要，也不該再跑（relax 會把輪拱唇緣拉出尖角）。 */
+  coupe:  {wheelMode:'replace', frontX:-1.4801, rearX:1.2317, yOffset:.1607},
+  sedan:  {wheelMode:'replace', frontX:-1.4719, rearX:1.2293, yOffset:.1627},
+  compact:{wheelMode:'replace', frontX:-1.3592, rearX:1.3479, yOffset:.1631},
+  touring:{wheelMode:'replace', frontX:-1.4723, rearX:1.2293, yOffset:.1628, paintRoughness:.33},
+  cabrio: {wheelMode:'replace', frontX:-1.4712, rearX:1.2437, yOffset:.1603},
   coupe2g:{wheelMode:'replace',yOffset:.155,frontX:-1.305,rearX:1.205,frontTrack:.758,rearTrack:.753,
     repairMaterials:true,smoothPaintNormals:true,relaxPaintSurface:3,paintRoughness:.30},
+  /* E36 M3：同上，yOffset 為實測的車體最低點與輪胎觸地面差值。 */
+  'coupe-m3':{wheelMode:'replace',yOffset:.1229,frontX:-1.4382,rearX:1.2432},
 };
-const CAR3D_REVERSED_BODIES=new Set(['compact']);
+const CAR3D_REVERSED_BODIES=new Set();   // 2025 版網格朝向已正確，不需要再翻面
 const CAR3D_MODEL_CACHE = new Map();
 const CAR3D_VIEWS = new Map();
 let CAR3D_SYNCING = false;
@@ -3546,10 +3636,22 @@ function carPhoto(build, opt={}){
   </div>`;
 }
 
-function bodySpec(bodyId){
+/* M3 的車身型式仍然是 Coupé，但葉子板、保桿、後視鏡與側裙都不同，
+   所以給它自己的網格。variant 只影響 3D，車身資料（尺寸、相容性）仍走 coupe。 */
+function isM3Model(modelId){
+  const m = typeof mdlById==='function' ? mdlById(modelId) : null;
+  return !!(m && m.m);
+}
+function car3DVariant(bodyId, modelId){
+  if(bodyId==='coupe' && isM3Model(modelId) && CAR3D_MODEL_URLS['coupe-m3']) return 'coupe-m3';
+  return bodyId;
+}
+
+function bodySpec(bodyId, modelId){
   const d = bodyById(bodyId) || {L:4433,W:1710,H:1366,wb:2700};
   return {
-    id:bodyId,
+    id:car3DVariant(bodyId, modelId),   // 3D 用（可能是 variant）
+    bodyId,                             // 資料用（永遠是真實車身型式）
     length:d.L/1000,
     width:d.W/1000,
     height:d.H/1000,
@@ -3765,33 +3867,238 @@ function addBodyTrim(THREE, body, spec, paint){
   [-1,1].forEach(side=>mesh(THREE,body,new THREE.BoxGeometry(spec.wheelbase-.58,.045,.045),lowerTrim,[0,.35,side*(spec.width/2+.048)]));
 }
 
+/* ==========================================================================
+   輪組幾何基準（datum）
+   --------------------------------------------------------------------------
+   所有橫向座標都掛在 hubFace 上 —— 輪轂鎖付面到車輛中心線的距離。
+   這是車上唯一不會因為換輪圈而改變的橫向平面：
+
+       輪圈中心面 = hubFace − ET          （ET 變小 → 輪圈往外）
+       輪圈安裝面 = hubFace                （永遠不動）
+       碟盤摩擦面 = hubFace − hatOffset    （永遠不動）
+
+   ★ 不可以用「胎寬」推導任何軸向座標。★
+
+   hubFace 的來源分兩種，每一台都註明：
+     measured  用 assets/models/ 的捐贈網格實測輪心 + 原廠 ET 反推。
+               好處是原廠狀態與捐贈網格的輪拱完全貼齊。
+     spec      捐贈網格拆不出輪心，改用公開規格的輪距/2 + 原廠 ET。
+
+   refTireR 是「車身高度已經調準」的那個胎半徑。換胎時整車一起升降，
+   輪拱間隙才會依實際物理變化，而不是讓輪胎陷進地面。
+   ========================================================================== */
+const CAR3D_DATUM = {
+  /* 2025 版 E36 網格：直接從各自的輪組 primitive 解出頂點、分四角量測。
+     這一批的軸距誤差只有 +1.2 ~ +14.8 mm，半輪距全家族一致落在 716.6–719.4 mm
+     （真實 E36 半輪距約 704–711，網格偏寬 6–15 mm，但輪拱同樣偏寬，視覺自洽）。
+     hubFace = 實測半輪距 + 原廠 ET47。 */
+  coupe:  {hubFaceF:.7664, hubFaceR:.7664, oemET:47, refTireR:.3125, src:'measured'},
+  sedan:  {hubFaceF:.7636, hubFaceR:.7636, oemET:47, refTireR:.3113, src:'measured'},
+  compact:{hubFaceF:.7651, hubFaceR:.7651, oemET:47, refTireR:.3120, src:'measured'},
+  touring:{hubFaceF:.7637, hubFaceR:.7637, oemET:47, refTireR:.3114, src:'measured'},
+  cabrio: {hubFaceF:.7646, hubFaceR:.7646, oemET:47, refTireR:.3118, src:'measured'},
+  /* Eclipse 的捐贈網格只有一顆孤立在原點的 15 吋鋼圈，不能當基準，改用公開規格：
+     前輪距 1513.8 / 後 1508.8 mm（半 756.9 / 754.4），原廠 ET46。 */
+  coupe2g:{hubFaceF:.8029, hubFaceR:.8004, oemET:46, refTireR:.3234, src:'spec'},
+  /* E36 M3：由 source OBJ 的輪組實測。半輪距 前 705.4 / 後 721.3 mm
+     （真實 M3 輪距 1422/1444 → 711.0/722.0，差 −5.6 / −0.7 mm），軸距 2681.4 mm。
+     原廠 ET41（Style 22/23/24/39 皆為 ET41）。 */
+  'coupe-m3':{hubFaceF:.7464, hubFaceR:.7623, oemET:41, refTireR:.3210, src:'measured'},
+};
+
+/* 輪轂幾何（相容性判斷另有 HUB 常數，這裡只取 3D 需要的） */
+const CAR3D_HUB = {
+  e36:   {pcd:120,   bore:72.56, lugs:5},
+  dsm2g: {pcd:114.3, bore:67.1,  lugs:5},
+};
+
+/* ★估算值★ 公開領域查無原廠數據。UI 需標示為估算，不可作為干涉判斷依據。
+   hatOffset：碟盤摩擦面中心相對輪轂鎖付面往內的距離。
+   （Wilwood DS495 的 79.2 mm 是大盤改裝套件值，原廠碟帽較淺。） */
+const CAR3D_BRAKE_EST = {
+  e36:   {hatOffset:.042, caliperDegF:104, caliperDegR:76},
+  dsm2g: {hatOffset:.040, caliperDegF:108, caliperDegR:74},
+};
+/* ★估算值★ 支柱中心線相對輪圈中心面往內的距離。 */
+const CAR3D_STRUT_INSET = {e36:.070, dsm2g:.095};
+
+function car3DDatum(bodyId){
+  return CAR3D_DATUM[bodyId] || {hubFaceF:.75, hubFaceR:.75, oemET:47, refTireR:.30, src:'fallback'};
+}
+
+/* --------------------------------------------------------------------------
+   外部輪輻面素材插槽
+   --------------------------------------------------------------------------
+   輪圈拆三段：輪輻面（造型）／輪輞（J 寬決定）／胎唇座（吋數決定）。
+   只有「面」能換成外部素材 —— 輪輞與 ET 必須維持程序化，否則改 ET、改 J 寬會失效。
+
+   註冊方式（素材放 assets/wheels/）：
+     CAR3D_WHEEL_FACE_SOURCES['bbs-lm'] = {
+       url:'./assets/wheels/lm-face.glb',
+       faceDiameter:430,  // 素材輪輻面外圈直徑（mm）
+       axis:'z',          // 素材的輪軸方向：'x' | 'y' | 'z'
+       mountZ:0,          // 素材原點到安裝面的距離（mm）
+     };
+   未註冊的樣式自動退回程序化輪輻，功能不受影響。
+   授權提醒：品牌輪圈造型可能受設計權／商標保護。上傳者標 CC0 不代表原廠同意。
+   -------------------------------------------------------------------------- */
+const CAR3D_WHEEL_FACE_SOURCES = {
+  /* 由 Sketchfab 素材抽出的輪輻面單件：已刪掉素材自帶的輪胎與輪輞（那兩件由 app
+     依 J 寬與 ET 程序化生成，否則改 ET 會失效），並把座標系烘成 +Z 朝外、
+     原點在輪輻面外平面。4,852 面 / 99 KB。 */
+  'bbs-lm': {url:'./assets/wheels/face-bbs.glb', axis:'z'},
+};
+const CAR3D_WHEEL_FACE_LOADING = new Map();
+const CAR3D_WHEEL_FACE_READY   = new Map();
+
+function ensureWheelFace(THREE, GLTFLoader, MeshoptDecoder, styleId){
+  const src = CAR3D_WHEEL_FACE_SOURCES[styleId];
+  if(!src) return Promise.resolve(null);
+  if(CAR3D_WHEEL_FACE_READY.has(styleId)) return Promise.resolve(CAR3D_WHEEL_FACE_READY.get(styleId));
+  if(!CAR3D_WHEEL_FACE_LOADING.has(styleId)){
+    CAR3D_WHEEL_FACE_LOADING.set(styleId, new Promise(resolve=>{
+      const loader=new GLTFLoader();
+      if(MeshoptDecoder) loader.setMeshoptDecoder(MeshoptDecoder);
+      loader.load(src.url, gltf=>{
+        const inner=gltf.scene;
+        if(src.axis==='x') inner.rotation.y=Math.PI/2;
+        else if(src.axis==='y') inner.rotation.x=-Math.PI/2;
+        inner.updateMatrixWorld(true);
+        const box=new THREE.Box3().setFromObject(inner);
+        const size=box.getSize(new THREE.Vector3()), c=box.getCenter(new THREE.Vector3());
+        const measured=Math.max(size.x,size.y);
+        const target=(+src.faceDiameter||measured*1000)/1000;
+        inner.position.set(-c.x,-c.y,-c.z+(+src.mountZ||0)/1000);
+        const holder=new THREE.Group(); holder.add(inner);
+        if(measured>0) holder.scale.setScalar(target/measured);
+        const ready={holder, faceDiameter:target};
+        CAR3D_WHEEL_FACE_READY.set(styleId, ready); resolve(ready);
+      }, undefined, err=>{
+        console.warn('[car3d-wheelface]',styleId,err);
+        CAR3D_WHEEL_FACE_READY.set(styleId,null); resolve(null);
+      });
+    }));
+  }
+  return CAR3D_WHEEL_FACE_LOADING.get(styleId);
+}
+
 function wheelPreset(id){
   const exact=[...WHEEL_STYLES,...ECL_WHEEL_STYLES].find(x=>x.id===id);
   if(exact) return exact;
   return {spokes:10,wide:true};
 }
 
-function sweptSpokeGeometry(THREE, inner, outer, innerW, outerW, depth, sweep=0){
-  const stations=[
-    {x:0,y:inner,w:innerW},
-    {x:sweep*.38,y:inner+(outer-inner)*.52,w:innerW+(outerW-innerW)*.48},
-    {x:sweep,y:outer,w:outerW},
-  ],vertices=[],indices=[],halfDepth=depth/2;
-  [-halfDepth,halfDepth].forEach(z=>stations.forEach(s=>vertices.push(s.x-s.w/2,s.y,z,s.x+s.w/2,s.y,z)));
-  for(let k=0;k<2;k++){
-    const offset=k*6,reverse=k===0;
-    for(let i=0;i<2;i++){
-      const a=offset+i*2,b=a+1,c=a+2,d=a+3;
-      indices.push(...(reverse?[a,c,b,b,c,d]:[a,b,c,b,d,c]));
+/* --------------------------------------------------------------------------
+   配輪幾何：把 build 的胎規 + J 寬 + ET 換算成每一個長度（公尺）
+   -------------------------------------------------------------------------- */
+function wheelGeometrySpec(build, datum, front){
+  const size=+build.size||17, ar=+build.tireAR||45, nominal=+build.tireW||225;
+  const j=rimJOf(build), et=rimETOf(build, datum.oemET)/1000;
+  const rimD=size*.0254, rimR=rimD/2, rimW=j*.0254;
+  const section=tireSectionWidth(nominal, j)/1000;   // 實際斷面寬（隨 J 寬變）
+  const overall=tireOverallWidth(nominal, j)/1000;   // 含保護肋 —— 會磨葉子板的是這個
+  const sectionH=nominal*(ar/100)/1000;              // 胎壁高（依規範用標稱寬）
+  const tireR=rimR+sectionH;
+  const hubFace=front?datum.hubFaceF:datum.hubFaceR;
+  return {size, j, et, rimD, rimR, rimW, section, overall, sectionH, tireR,
+          hubFace, centreZ:hubFace-et};
+}
+
+/* --------------------------------------------------------------------------
+   輪輻：沿半徑放樣的實體，帶剖面錐度與盤面深度
+   -------------------------------------------------------------------------- */
+function spokeGeometry(THREE, o){
+  const {r0,r1,w0,w1,t0,t1,dish,twist}=o, N=6, verts=[], idx=[];
+  const push=p=>{verts.push(p[0],p[1],p[2]);return verts.length/3-1;};
+  const rows=[];
+  for(let i=0;i<=N;i++){
+    const u=i/N, r=r0+(r1-r0)*u;
+    const w=(w0+(w1-w0)*u)/2, t=(t0+(t1-t0)*u)/2;
+    const z=dish*Math.pow(u,1.7), a=twist*u;
+    const ca=Math.cos(a), sa=Math.sin(a);
+    rows.push([
+      push([r*ca - w*sa, r*sa + w*ca, z+t]),
+      push([r*ca + w*sa, r*sa - w*ca, z+t]),
+      push([r*ca + w*sa, r*sa - w*ca, z-t]),
+      push([r*ca - w*sa, r*sa + w*ca, z-t]),
+    ]);
+  }
+  for(let i=0;i<rows.length-1;i++){
+    const a=rows[i], b=rows[i+1];
+    for(let k=0;k<4;k++){
+      const k2=(k+1)%4;
+      idx.push(a[k],b[k],a[k2], a[k2],b[k],b[k2]);
     }
   }
-  indices.push(
-    0,6,8,0,8,2, 2,8,10,2,10,4,
-    1,3,9,1,9,7, 3,5,11,3,11,9,
-    0,1,7,0,7,6, 4,10,11,4,11,5,
-  );
-  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
-  geometry.setIndex(indices);geometry.computeVertexNormals();return geometry;
+  const f=rows[0], l=rows[rows.length-1];
+  idx.push(f[0],f[2],f[1], f[0],f[3],f[2]);
+  idx.push(l[0],l[1],l[2], l[0],l[2],l[3]);
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+  g.setIndex(idx); g.computeVertexNormals(); return g;
+}
+
+/* 輪輻面：輪輻 + 內盤 + 中心蓋 + 螺帽。所有 Z 都相對輪圈中心面，並乘上 side。 */
+function wheelFaceGroup(THREE, preset, spec, hub, rimMat, lipMat, faceMesh, side){
+  const g=new THREE.Group(), rimR=spec.rimR;
+  const mountZ=side*spec.et;                                  // 輪轂鎖付面
+  const faceZ=side*(spec.rimW/2 - Math.min(.018, spec.rimW*.10));
+
+  if(faceMesh){
+    const m=faceMesh.holder.clone(true);
+    m.scale.multiplyScalar((rimR*2*.92)/faceMesh.faceDiameter);
+    // 讓「輪圈顏色」8 種選項對外部素材同樣有效 —— 否則換色會對這款輪圈沒反應
+    m.traverse(o=>{
+      if(!o.isMesh) return;
+      o.castShadow=true;o.receiveShadow=true;
+      const list=(Array.isArray(o.material)?o.material:[o.material]).map(src=>{
+        const r=src.clone();
+        r.color.copy(rimMat.color);r.metalness=rimMat.metalness;r.roughness=rimMat.roughness;
+        return r;
+      });
+      o.material=list.length===1?list[0]:list;
+    });
+    if(side<0) m.rotation.y=Math.PI;   // 用旋轉而不是負縮放，避免面法向反轉
+    m.position.z=faceZ; g.add(m);
+    return g;
+  }
+
+  const lugR=hub.pcd/2000, boreR=hub.bore/2000;
+  // 輪輻起點必須繞得開螺栓圈，否則輪輻會在輪心互相穿模
+  const r0=Math.max(boreR+.016, lugR+.014), r1=rimR*.955;
+  const pair=!!(preset.pair||preset.mesh);
+  const n=pair?Math.max(3,Math.round(preset.spokes/2)):Math.max(3,preset.spokes|0);
+  const count=pair?n*2:n;
+  // 內端總寬不得超過該半徑 88% 的週長 —— 防穿模的硬上限
+  const w0=Math.min(preset.innerW||(preset.thin?.028:.040), 2*Math.PI*r0*.88/count);
+  const w1=Math.min(preset.outerW||(preset.wide?.075:.055), 2*Math.PI*r1*.94/count);
+  const t0=preset.steel?.012:.026, t1=preset.steel?.009:.016;
+  const dish=side*((preset.dish?-.026:0)+(preset.concave?-.020:0));
+  const spread=pair?(preset.pairSpread||.035):0;
+  const spokeMat=rimMat.clone(); spokeMat.side=THREE.DoubleSide;
+
+  for(let i=0;i<n;i++){
+    const base=i/n*Math.PI*2;
+    (pair?[-1,1]:[0]).forEach(sgn=>{
+      const twist=(sgn*spread+(preset.spokeSweep||0))/Math.max(.05,r1);
+      mesh(THREE,g,spokeGeometry(THREE,{r0,r1,w0,w1,t0,t1,dish,twist}),spokeMat,[0,0,faceZ],[0,0,base]);
+    });
+  }
+  // 內盤：把輪輻根部與輪輞連起來，消掉「從空環看穿到卡鉗」
+  const web=new THREE.Mesh(new THREE.CylinderGeometry(r0*1.02,r0*1.02,.030,36),rimMat);
+  web.rotation.x=Math.PI/2; web.position.z=faceZ+dish*.35; g.add(web);
+  // 中心蓋：外端與輪輻面齊平（舊版是長 40 mm 的圓柱，外凸 20 mm）
+  const capR=Math.max(boreR+.012, lugR*.72), capL=.012;
+  mesh(THREE,g,new THREE.CylinderGeometry(capR,capR*.97,capL,32),rimMat,
+       [0,0,faceZ+dish-side*capL/2],[Math.PI/2,0,0]);
+  // 螺帽：座落在真實螺栓圈上（5x120 → 半徑 60 mm，舊版是 17 mm）
+  const lugs=hub.lugs||5;
+  for(let i=0;i<lugs;i++){
+    const a=i/lugs*Math.PI*2+Math.PI/lugs;
+    mesh(THREE,g,new THREE.CylinderGeometry(.0092,.0092,.014,6),lipMat,
+         [Math.cos(a)*lugR,Math.sin(a)*lugR,mountZ-side*.030],[Math.PI/2,0,0],false);
+  }
+  return g;
 }
 
 function cylinderBetween(THREE,parent,a,b,radius,material,segments=12){
@@ -3811,10 +4118,14 @@ function suspensionPalette(THREE,build){
   return {spring:mat(THREE,0x252a2c,{metalness:.46,roughness:.38}),damper:mat(THREE,0x343a3c,{metalness:.55,roughness:.32})};
 }
 
-function addSuspensionModule(THREE,parent,build,rimR,tireW,side,front){
+/* 支柱位置只由 datum 決定，不再由胎寬推導 */
+function addSuspensionModule(THREE,parent,build,spec,side,front){
   const palette=suspensionPalette(THREE,build),steel=mat(THREE,0x4c5355,{metalness:.68,roughness:.31});
-  const isEclipse=build.platform==='dsm2g',x=front?rimR*.10:-rimR*.04;
-  const z=-side*tireW*(isEclipse?.43:.31),top=rimR*.74,bottom=-rimR*.28;
+  const isEclipse=build.platform==='dsm2g',rimR=spec.rimR;
+  const x=front?rimR*.10:-rimR*.04;
+  const z=-side*CAR3D_STRUT_INSET[isEclipse?'dsm2g':'e36'];
+  const top=rimR*.74,bottom=-rimR*.28;
+  const hubZ=-side*.030, inboardZ=-side*(spec.rimW*.55+.055);
   mesh(THREE,parent,new THREE.CylinderGeometry(rimR*.055,rimR*.062,top-bottom,20),palette.damper,[x,(top+bottom)/2,z]);
   mesh(THREE,parent,new THREE.CylinderGeometry(rimR*.13,rimR*.13,.025,28),steel,[x,top+.018,z]);
   const points=[],turns=front?6.5:5.5,steps=72;
@@ -3825,7 +4136,6 @@ function addSuspensionModule(THREE,parent,build,rimR,tireW,side,front){
   const spring=new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points),steps,rimR*.016,7,false),palette.spring);
   spring.castShadow=true;spring.receiveShadow=true;parent.add(spring);
   if(isEclipse){
-    const hubZ=-side*tireW*.16,inboardZ=-side*tireW*.92;
     const lower=[0,-rimR*.20,hubZ],upper=[0,rimR*.30,hubZ];
     cylinderBetween(THREE,parent,lower,[-rimR*.40,-rimR*.27,inboardZ],rimR*.028,steel,14);
     cylinderBetween(THREE,parent,lower,[rimR*.38,-rimR*.27,inboardZ],rimR*.028,steel,14);
@@ -3839,123 +4149,160 @@ function addSuspensionModule(THREE,parent,build,rimR,tireW,side,front){
     }
     cylinderBetween(THREE,parent,[x,bottom,z],lower,rimR*.030,steel,14);
   }else{
-    cylinderBetween(THREE,parent,[x,bottom,z],[0,-rimR*.16,-side*tireW*.06],rimR*.032,steel,14);
-    cylinderBetween(THREE,parent,[-rimR*.38,-rimR*.31,z-side*tireW*.08],[0,-rimR*.18,-side*tireW*.05],rimR*.026,steel,12);
-    cylinderBetween(THREE,parent,[rimR*.38,-rimR*.31,z-side*tireW*.08],[0,-rimR*.18,-side*tireW*.05],rimR*.026,steel,12);
+    cylinderBetween(THREE,parent,[x,bottom,z],[0,-rimR*.16,hubZ],rimR*.032,steel,14);
+    cylinderBetween(THREE,parent,[-rimR*.38,-rimR*.31,z],[0,-rimR*.18,hubZ],rimR*.026,steel,12);
+    cylinderBetween(THREE,parent,[rimR*.38,-rimR*.31,z],[0,-rimR*.18,hubZ],rimR*.026,steel,12);
   }
 }
 
+/* 卡鉗剖面：跨在碟盤外緣的 U 形，不再是蓋滿整個輪圈的平板 */
 function caliperGeometry(THREE,width,height,depth){
   const shape=new THREE.Shape();
-  shape.moveTo(-width*.42,-height*.50);shape.quadraticCurveTo(-width*.58,-height*.38,-width*.50,-height*.18);
-  shape.lineTo(-width*.36,height*.35);shape.quadraticCurveTo(-width*.27,height*.52,0,height*.50);
-  shape.lineTo(width*.26,height*.48);shape.quadraticCurveTo(width*.52,height*.38,width*.48,height*.14);
-  shape.lineTo(width*.37,-height*.34);shape.quadraticCurveTo(width*.28,-height*.51,0,-height*.50);shape.closePath();
-  const geometry=new THREE.ExtrudeGeometry(shape,{depth,bevelEnabled:true,bevelSegments:2,bevelSize:depth*.18,bevelThickness:depth*.14,curveSegments:8});
+  shape.moveTo(-width*.46,-height*.50);
+  shape.quadraticCurveTo(-width*.54,-height*.16,-width*.46,height*.30);
+  shape.quadraticCurveTo(-width*.40,height*.52,-width*.10,height*.50);
+  shape.lineTo(width*.12,height*.50);
+  shape.quadraticCurveTo(width*.42,height*.52,width*.47,height*.28);
+  shape.quadraticCurveTo(width*.54,-height*.16,width*.46,-height*.50);
+  shape.quadraticCurveTo(width*.10,-height*.62,-width*.46,-height*.50);
+  shape.closePath();
+  const geometry=new THREE.ExtrudeGeometry(shape,{depth,bevelEnabled:true,bevelSegments:2,
+    bevelSize:depth*.10,bevelThickness:depth*.08,curveSegments:10});
   geometry.translate(0,0,-depth/2);geometry.computeVertexNormals();return geometry;
 }
 
-function addBrakeModule(THREE,parent,build,rimR,tireW,side,front){
-  const products=build.platform==='dsm2g'?eclipseBrakeProducts(build.modelId):BRAKE_PRODUCTS;
+/* 碟盤與卡鉗：軸向位置只由 hubFace − hatOffset 決定 */
+function addBrakeModule(THREE,parent,build,spec,side,front){
+  const isEclipse=build.platform==='dsm2g',plat=isEclipse?'dsm2g':'e36';
+  const products=isEclipse?eclipseBrakeProducts(build.modelId):BRAKE_PRODUCTS;
   const brake=products.find(x=>x.id===build.brakeKit)||products[0];
-  const discR=Math.min(rimR*.84,(brake.disc/2000)*(front?1:.88)),discZ=side*tireW*.11;
+  const est=CAR3D_BRAKE_EST[plat];
+  // 碟盤要留得下輪輞內壁間隙；裝不下時夾到可容納的最大值（UI 另有文字警告）
+  const discR=Math.min(spec.rimR-.014, (brake.disc/2000)*(front?1:.88));
+  const discZ=side*(spec.et-est.hatOffset);            // ← 與胎寬無關
+  const thick=brake.pistons>=4?.016:.011;
   const rotor=mat(THREE,0x788083,{metalness:.82,roughness:.28}),edge=mat(THREE,0x33393a,{metalness:.72,roughness:.40});
-  [-.013,.013].forEach(offset=>mesh(THREE,parent,new THREE.CylinderGeometry(discR,discR,.008,64),rotor,[0,0,discZ+side*offset],[Math.PI/2,0,0]));
-  mesh(THREE,parent,new THREE.CylinderGeometry(discR*.36,discR*.36,.038,40),edge,[0,0,discZ],[Math.PI/2,0,0]);
-  const vent=new THREE.Mesh(new THREE.TorusGeometry(discR*.96,.006,7,64),edge);vent.position.z=discZ;parent.add(vent);
+  [-thick/2,thick/2].forEach(o=>mesh(THREE,parent,new THREE.CylinderGeometry(discR,discR,.007,64),rotor,[0,0,discZ+side*o],[Math.PI/2,0,0]));
+  mesh(THREE,parent,new THREE.CylinderGeometry(discR*.42,discR*.42,thick+.020,40),edge,[0,0,discZ],[Math.PI/2,0,0]);
+  // 碟帽：把碟盤接回輪轂鎖付面
+  mesh(THREE,parent,new THREE.CylinderGeometry(discR*.36,discR*.40,Math.max(.010,est.hatOffset),32),edge,
+       [0,0,side*(spec.et-est.hatOffset/2)],[Math.PI/2,0,0],false);
+  const vent=new THREE.Mesh(new THREE.TorusGeometry(discR*.965,.005,7,64),edge);vent.position.z=discZ;parent.add(vent);
   if(brake.id==='brembo'||brake.id==='ecl-brembo')for(let i=0;i<18;i++){
-    const angle=i/18*Math.PI*2+.08,holeR=discR*(i%2?.68:.79);
-    mesh(THREE,parent,new THREE.CylinderGeometry(.0045,.0045,.012,8),edge,[Math.cos(angle)*holeR,Math.sin(angle)*holeR,discZ+side*.019],[Math.PI/2,0,0],false);
+    const a=i/18*Math.PI*2+.08, hr=discR*(i%2?.70:.82);
+    mesh(THREE,parent,new THREE.CylinderGeometry(.0042,.0042,thick+.004,8),edge,
+         [Math.cos(a)*hr,Math.sin(a)*hr,discZ],[Math.PI/2,0,0],false);
   }
-  const selectedColor=CALIPER_COLORS.find(x=>x.id===build.caliper)||CALIPER_COLORS.find(x=>x.id===brake.color)||CALIPER_COLORS[0];
-  const caliperMat=mat(THREE,selectedColor.hex,{metalness:.28,roughness:.27});
-  const height=discR*(brake.pistons>=4?.74:brake.pistons===2?.62:.52);
-  const width=discR*(brake.pistons>=4?.35:brake.pistons===2?.31:.28),depth=brake.pistons>=4?.072:.052;
-  const caliper=mesh(THREE,parent,caliperGeometry(THREE,width,height,depth),caliperMat,[-discR*.76,.01,discZ+side*.030],[0,0,-.16]);
-  caliper.scale.set(front?1:.82,front?1:.82,.82);
+  const col=CALIPER_COLORS.find(x=>x.id===build.caliper)||CALIPER_COLORS.find(x=>x.id===brake.color)||CALIPER_COLORS[0];
+  const caliperMat=mat(THREE,col.hex,{metalness:.28,roughness:.27});
+  // 卡鉗只跨在摩擦帶上：徑向約 0.70R → 1.03R
+  const height=discR*.34, width=discR*(brake.pistons>=4?.46:brake.pistons===2?.38:.32);
+  const depth=thick+(brake.pistons>=4?.062:.046);
+  // 軸向：中心對齊碟盤，且外側面不得超出輪轂鎖付面
+  let cz=discZ;
+  const maxOuter=side*(spec.et-.004);
+  if(Math.abs(cz+side*depth/2)>Math.abs(maxOuter)) cz=maxOuter-side*depth/2;
+  const deg=(front?est.caliperDegF:est.caliperDegR)*Math.PI/180*(build.rearIsPlusX?1:-1);
+  const rr=discR*.865;
+  const caliper=mesh(THREE,parent,caliperGeometry(THREE,width,height,depth),caliperMat,
+       [Math.sin(deg)*rr,Math.cos(deg)*rr,cz],[0,0,-deg]);
+  caliper.scale.set(front?1:.88,front?1:.88,1);
 }
 
-function tireProfileGeometry(THREE,tireR,rimR,tireW){
-  const sidewall=Math.max(.045,tireR-rimR),half=tireW/2,bead=rimR*1.012;
-  const points=[
-    [bead,-half*.72],[rimR+sidewall*.16,-half*.88],[rimR+sidewall*.52,-half],
-    [rimR+sidewall*.86,-half*.94],[tireR,-half*.76],[tireR+.001,-half*.38],
-    [tireR+.001,half*.38],[tireR,half*.76],[rimR+sidewall*.86,half*.94],
-    [rimR+sidewall*.52,half],[rimR+sidewall*.16,half*.88],[bead,half*.72],
-  ].map(([radius,axial])=>new THREE.Vector2(radius,axial));
-  const geometry=new THREE.LatheGeometry(points,64);geometry.rotateX(Math.PI/2);geometry.computeVertexNormals();
+/* 輪胎剖面：胎唇落在真實輪輞寬上，最大斷面寬依 ETRTO 隨 J 寬修正 */
+function tireProfileGeometry(THREE,spec){
+  const {rimR,rimW,sectionH,tireR}=spec;
+  const bead=rimW/2, half=spec.section/2, tread=spec.section*.42, seat=rimR*1.008;
+  const pts=[
+    [seat,-bead],
+    [rimR+sectionH*.20,-half*.86],
+    [rimR+sectionH*.48,-half],          // 最大斷面寬
+    [rimR+sectionH*.78,-half*.97],
+    [tireR-sectionH*.06,-tread*1.04],   // 胎肩
+    [tireR,-tread],
+    [tireR,tread],
+    [tireR-sectionH*.06,tread*1.04],
+    [rimR+sectionH*.78,half*.97],
+    [rimR+sectionH*.48,half],
+    [rimR+sectionH*.20,half*.86],
+    [seat,bead],
+  ].map(([r,a])=>new THREE.Vector2(r,a));
+  const geometry=new THREE.LatheGeometry(pts,64);
+  geometry.rotateX(Math.PI/2);geometry.computeVertexNormals();
   return geometry;
 }
 
-function addTireDetails(THREE,parent,tireR,rimR,tireW){
+function addTireDetails(THREE,parent,spec){
   const groove=mat(THREE,0x070909,{roughness:.98,metalness:0}),sidewall=mat(THREE,0x1a1d1c,{roughness:.92,metalness:0});
-  [-.42,-.14,.14,.42].forEach(offset=>{
-    const ring=new THREE.Mesh(new THREE.TorusGeometry(tireR+.0015,.0022,6,72),groove);
-    ring.position.z=offset*tireW;parent.add(ring);
+  const tread=spec.section*.42;
+  [-.62,-.21,.21,.62].forEach(o=>{
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(spec.tireR+.0012,.0022,6,72),groove);
+    ring.position.z=o*tread;parent.add(ring);
   });
-  [-1,1].forEach(side=>{
-    const shoulder=new THREE.Mesh(new THREE.TorusGeometry(rimR+(tireR-rimR)*.52,.002,6,64),sidewall);
-    shoulder.position.z=side*tireW*.495;parent.add(shoulder);
-    const bead=new THREE.Mesh(new THREE.TorusGeometry(rimR*1.018,.0045,7,64),sidewall);
-    bead.position.z=side*tireW*.36;parent.add(bead);
+  [-1,1].forEach(s=>{
+    const shoulder=new THREE.Mesh(new THREE.TorusGeometry(spec.rimR+spec.sectionH*.48,.0022,6,64),sidewall);
+    shoulder.position.z=s*spec.section/2;parent.add(shoulder);
+    const bead=new THREE.Mesh(new THREE.TorusGeometry(spec.rimR*1.02,.0045,7,64),sidewall);
+    bead.position.z=s*spec.rimW/2;parent.add(bead);
   });
 }
 
-function makeWheel(THREE, build, tireR, tireW, side, front){
+/* --------------------------------------------------------------------------
+   一顆完整輪組。group 原點 = 輪圈中心面（= hubFace − ET）
+   -------------------------------------------------------------------------- */
+function makeWheel(THREE, build, spec, side, front){
   const g=new THREE.Group(), preset=wheelPreset(build.wheel);
-  const od=(+build.size||17)*.0254+2*((+build.tireW||225)/1000*((+build.tireAR||45)/100));
-  const rimR=Math.min(tireR*.82,tireR*((+build.size||17)*.0254/Math.max(.2,od)));
-  const sidewall=Math.max(.045,tireR-rimR), tireMat=mat(THREE,0x111312,{roughness:.88,metalness:0});
-  mesh(THREE,g,tireProfileGeometry(THREE,tireR,rimR,tireW),tireMat);
-  addTireDetails(THREE,g,tireR,rimR,tireW);
+  const hub=CAR3D_HUB[build.platform==='dsm2g'?'dsm2g':'e36'];
+  mesh(THREE,g,tireProfileGeometry(THREE,spec),mat(THREE,0x111312,{roughness:.88,metalness:0}));
+  addTireDetails(THREE,g,spec);
+
   const fin=WHEEL_FINISHES.find(x=>x.id===build.finish)||WHEEL_FINISHES[0];
-  const rimMat=new THREE.MeshStandardMaterial({color:fin.face,metalness:preset.cast?.52:preset.steel?.48:.64,
-    roughness:preset.cast?.34:preset.steel?.40:.23});
+  const rimMat=new THREE.MeshStandardMaterial({color:fin.face,
+    metalness:preset.cast?.52:preset.steel?.48:.64, roughness:preset.cast?.34:preset.steel?.40:.23});
   const lipMat=new THREE.MeshStandardMaterial({color:fin.lip||fin.face,metalness:.76,roughness:.16});
-  addSuspensionModule(THREE,g,build,rimR,tireW,side,front);
-  addBrakeModule(THREE,g,build,rimR,tireW,side,front);
+
+  addSuspensionModule(THREE,g,build,spec,side,front);
+  addBrakeModule(THREE,g,build,spec,side,front);
+
+  // 輪輞：寬度 = 真實 J 寬，不再是胎寬 × 0.70
   const barrelMat=rimMat.clone();barrelMat.color.offsetHSL(0,0,-.10);barrelMat.side=THREE.DoubleSide;
-  mesh(THREE,g,new THREE.CylinderGeometry(rimR*.96,rimR*.96,tireW*.70,64,1,true),barrelMat,[0,0,0],[Math.PI/2,0,0]);
-  const faceZ=side*(tireW*.49+.008),n=(preset.pair||preset.mesh)?Math.max(3,preset.spokes/2):preset.spokes;
-  const inner=rimR*.17*(preset.hubScale||1),outer=rimR*.82,innerW=preset.innerW||(preset.thin?.028:.040),outerW=preset.outerW||(preset.wide?.075:.055);
-  for(let i=0;i<n;i++){
-    const base=i/n*Math.PI*2,pair=preset.pair||preset.mesh;
-    const sweeps=pair?[-1,1]:[0];
-    sweeps.forEach(sign=>{
-      const split=outer*(preset.pairSpread||.035)+(preset.spokeSweep||0),sweep=pair?sign*split:0;
-      const spokeGeo=sweptSpokeGeometry(THREE,inner,outer,innerW,outerW,.030,sweep);
-      const spoke=mesh(THREE,g,spokeGeo,rimMat,[0,0,faceZ-side*(preset.dish?.035:0)],[0,0,base]);
-      if(preset.concave)spoke.position.z-=side*.035;
-    });
-  }
-  mesh(THREE,g,new THREE.CylinderGeometry(rimR*.125*(preset.hubScale||1),rimR*.125*(preset.hubScale||1),.040,32),rimMat,[0,0,faceZ],[Math.PI/2,0,0]);
-  for(let i=0;i<5;i++){
-    const a=i/5*Math.PI*2;
-    mesh(THREE,g,new THREE.CylinderGeometry(.008,.008,.015,12),lipMat,[Math.cos(a)*rimR*.075,Math.sin(a)*rimR*.075,faceZ+side*.023],[Math.PI/2,0,0],false);
-  }
-  const lip=new THREE.Mesh(new THREE.TorusGeometry(rimR*.94,rimR*(preset.lipScale||.045),10,64),preset.cast?rimMat:lipMat);
-  lip.position.z=faceZ;g.add(lip);
-  const bead=new THREE.Mesh(new THREE.TorusGeometry(rimR*.99,rimR*(preset.cast?.010:.018),8,64),rimMat);
-  bead.position.z=faceZ-side*.012;g.add(bead);
+  mesh(THREE,g,new THREE.CylinderGeometry(spec.rimR*.945,spec.rimR*.945,spec.rimW*.96,64,1,true),
+       barrelMat,[0,0,0],[Math.PI/2,0,0]);
+
+  g.add(wheelFaceGroup(THREE,preset,spec,hub,rimMat,lipMat,
+        CAR3D_WHEEL_FACE_READY.get(build.wheel)||null, side));
+
+  // 內外輪唇
+  const lipW=spec.rimR*(preset.lipScale||.042);
+  const outer=new THREE.Mesh(new THREE.TorusGeometry(spec.rimR*.97,lipW,10,64),preset.cast?rimMat:lipMat);
+  outer.position.z=side*spec.rimW/2; g.add(outer);
+  const inner=new THREE.Mesh(new THREE.TorusGeometry(spec.rimR*.97,lipW*.72,8,48),rimMat);
+  inner.position.z=-side*spec.rimW/2; g.add(inner);
   return g;
 }
 
 function addWheels(THREE, root, spec, build, tireR){
   const config=car3DBodyConfig(spec.id);
   if(config.wheelMode!=='replace') return;
-  const tireW=Math.max(.17,Math.min(.31,(+build.tireW||225)/1000));
-  [{front:true,x:config.frontX,y:config.frontY,track:config.frontTrack},
-   {front:false,x:config.rearX,y:config.rearY,track:config.rearTrack}].forEach(axle=>[-1,1].forEach(side=>{
-    const {front,x,y}=axle;
-    const baseTrack=axle.track||spec.width/2-tireW*.52;
-    const track=baseTrack+(+(front?build.trackF:build.trackR)||0)/2000;
+  const datum=car3DDatum(spec.id);
+  const platform=spec.eclipse?'dsm2g':'e36';
+  const rearIsPlusX=(+config.frontX||0)<0;
+  [{front:true,x:config.frontX},{front:false,x:config.rearX}].forEach(axle=>[-1,1].forEach(side=>{
+    const {front,x}=axle;
+    const wheelBuild={...build,platform,rearIsPlusX};
+    const geo=wheelGeometrySpec(wheelBuild,datum,front);
+    const baseTrack=geo.centreZ;                       // ← 不含墊片，墊片由 updateCar3DBuild 疊加
+    const spacer=(+(front?build.trackF:build.trackR)||0)/2000;
     const camber=+(front?build.camberF:build.camberR)||0,toe=+(front?build.toeF:build.toeR)||0;
-    const wheelBuild={...build,platform:spec.eclipse?'dsm2g':'e36'};
-    const wheelY=Number.isFinite(y)?y:tireR;
-    const w=makeWheel(THREE,wheelBuild,tireR,tireW,side,front);w.position.set(x,wheelY,side*track);
-    w.rotation.order='YXZ';w.rotation.x=side*THREE.MathUtils.degToRad(camber);
+    const wheelY=geo.tireR+(front?0:(datum.yTrimR||0));
+    const w=makeWheel(THREE,wheelBuild,geo,side,front);
+    w.position.set(x,wheelY,side*(baseTrack+spacer));
+    w.rotation.order='YXZ';
+    w.rotation.x=side*THREE.MathUtils.degToRad(camber);
     w.rotation.y=side*THREE.MathUtils.degToRad(toe);
-    Object.assign(w.userData,{carWheel:true,front,side,baseTrack,baseY:wheelY});root.add(w);
+    Object.assign(w.userData,{carWheel:true,front,side,baseTrack,baseY:wheelY,
+      partId:`wheel-${front?'F':'R'}${side<0?'L':'R'}`});
+    root.add(w);
   }));
 }
 
@@ -4061,9 +4408,16 @@ function addExhaust(THREE, root, spec, build){
   });
 }
 
+/* 輪胎靜態半徑（公尺）。舊版夾在 .285–.39，但 UI 滑桿允許的外徑範圍是 448–882 mm，
+   兩端都會被夾住 —— 那正是「輪心固定 300 mm、輪胎陷進地面」的來源。
+   現在輪心高度直接等於這個值，所以只保留防呆用的寬鬆上下限。 */
 function car3DTireRadius(build){
   const od=(+build.size||17)*25.4+2*((+build.tireW||225)*(+build.tireAR||45)/100);
-  return Math.max(.285,Math.min(.39,od/2000));
+  return Math.max(.20,Math.min(.46,od/2000));
+}
+/* 車身升降量：換胎徑時整車一起升降，輪拱間隙才會依實際物理變化 */
+function car3DRideOffset(bodyId, build){
+  return car3DTireRadius(build) - car3DDatum(bodyId).refTireR;
 }
 
 function referenceShellKnots(spec){
@@ -4465,15 +4819,18 @@ function setImportedVisibility(model, spec, build){
 async function buildImportedCarModel(THREE, GLTFLoader, MeshoptDecoder, spec, build){
   const source=await loadCar3DSource(GLTFLoader,MeshoptDecoder,spec),model=cloneCar3DSource(source),root=new THREE.Group();
   root.userData.viewDirection=car3DBodyConfig(spec.id).viewDirection;
-  if(spec.id==='sedan')removeImportedGround(THREE,model);
   normalizeImportedCar(THREE,model,spec);
   smoothImportedPaintNormals(THREE,model,spec);
   const paint=styleImportedCar(THREE,model,spec,build);setImportedVisibility(model,spec,build);
   const dropF=Math.max(0,+build.dropF||+build.drop||0),dropR=Math.max(0,+build.dropR||+build.drop||0);
-  const baseY=model.position.y;model.position.y-=(dropF+dropR)/2000;model.rotation.z=(dropF-dropR)/1000/Math.max(1,spec.wheelbase);
-  Object.assign(model.userData,{vehicleBody:true,baseY});root.add(model);
-  const tireR=car3DTireRadius(build),wheelBuild={...build,tireW:Math.min(+build.tireW||225,spec.eclipse?265:285)};
-  addWheels(THREE,root,spec,wheelBuild,tireR);
+  const wheelBuild={...build,tireW:Math.min(+build.tireW||225,spec.eclipse?265:285)};
+  const baseY=model.position.y;
+  model.position.y=baseY+car3DRideOffset(spec.id,wheelBuild)-(dropF+dropR)/2000;
+  model.rotation.z=(dropF-dropR)/1000/Math.max(1,spec.wheelbase);
+  Object.assign(model.userData,{vehicleBody:true,baseY,ride:true});root.add(model);
+  // 有註冊外部輪輻面素材時先載入；沒註冊會立刻 resolve(null)，不影響啟動速度
+  await ensureWheelFace(THREE,GLTFLoader,MeshoptDecoder,wheelBuild.wheel).catch(()=>null);
+  addWheels(THREE,root,spec,wheelBuild,car3DTireRadius(wheelBuild));
   return root;
 }
 
@@ -4495,7 +4852,7 @@ function applyCar3DView(instance, view){
 }
 
 async function createScene(root, config, THREE, OrbitControls, GLTFLoader, MeshoptDecoder){
-  const spec=bodySpec(config.bodyId), dark=document.documentElement.dataset.theme==='dark';
+  const spec=bodySpec(config.bodyId, config.modelId), dark=document.documentElement.dataset.theme==='dark';
   const scene=new THREE.Scene();scene.background=new THREE.Color(dark?0x101511:0xdfe4de);scene.fog=new THREE.Fog(scene.background,8,16);
   const camera=new THREE.PerspectiveCamera(31,1,.1,50);
   camera.position.set(-4.2,1.9,4.2);
@@ -4589,12 +4946,19 @@ function updateCar3DBuild(build){
     const dropF=Math.max(0,+build.dropF||+build.drop||0),dropR=Math.max(0,+build.dropR||+build.drop||0);
     x.car.traverse(o=>{
       if(o.userData.vehicleBody){
-        o.position.y=(o.userData.baseY||0)-(dropF+dropR)/2000;
+        const ride=o.userData.ride?car3DRideOffset(x.spec.id,build):0;
+        o.position.y=(o.userData.baseY||0)+ride-(dropF+dropR)/2000;
         o.rotation.z=(dropF-dropR)/1000/Math.max(1,x.spec.wheelbase);
       }
       if(!o.userData.carWheel)return;
-      const {front,side,baseTrack}=o.userData,camber=+(front?build.camberF:build.camberR)||0,toe=+(front?build.toeF:build.toeR)||0;
+      const {front,side}=o.userData,camber=+(front?build.camberF:build.camberR)||0,toe=+(front?build.toeF:build.toeR)||0;
+      // 依目前的 ET 重算輪圈中心面，這樣拖 ET／J 寬滑桿時輪圈會即時左右移動
+      const datum=car3DDatum(x.spec.id);
+      const live=wheelGeometrySpec(build,datum,front);
+      const baseTrack=Number.isFinite(live.centreZ)?live.centreZ:(o.userData.baseTrack||0);
+      o.userData.baseTrack=baseTrack;
       o.position.z=side*(baseTrack+(+(front?build.trackF:build.trackR)||0)/2000);
+      o.position.y=live.tireR+(front?0:(datum.yTrimR||0));
       o.rotation.x=side*THREE.MathUtils.degToRad(camber);o.rotation.y=side*THREE.MathUtils.degToRad(toe);
     });
   }));
@@ -5213,6 +5577,9 @@ function partPanel(b, c){
   }
   if(DPART==='tire'){
     const od = tireOD({w:b.tireW,ar:b.tireAR,rim:b.size});
+    const auto = rimFitmentIsAuto(b), j = rimJOf(b), et = rimETOf(b, stockET(c));
+    const range = tireRimRange(b.tireW, b.tireAR);
+    const inRange = j>=range[0] && j<=range[1];
     body = `<div style="padding-top:var(--s2)">
       <div class="product-grid compact">${TIRE_PRODUCTS.map(x=>productOption(x,b.tireProduct,'tireProduct')).join('')}</div>
       ${sliderInput('輪圈尺寸','吋','size',14,19,1,b.size)}
@@ -5220,6 +5587,22 @@ function partPanel(b, c){
       ${sliderInput('扁平比','%','tireAR',25,70,5,b.tireAR)}
       <div class="kv"><span>規格</span><b>${b.tireW}/${b.tireAR} R${b.size}</b></div>
       <div class="kv"><span>外徑</span><b>${od.toFixed(0)} mm</b></div>
+
+      <div class="t-cap" style="margin-top:var(--s3);margin-bottom:6px">輪圈寬與 ET${auto?'（目前為推估值）':''}</div>
+      <label class="chk"><input type="checkbox" ${auto?'checked':''}
+        onchange="setRimAuto(this.checked)">依胎寬自動推估</label>
+      ${auto?`<div class="kv"><span>推估輪圈寬</span><b>${j.toFixed(1)}J</b></div>
+      <div class="kv"><span>推估 ET</span><b>ET${et.toFixed(0)}</b></div>`
+      :`${sliderInput('輪圈寬','J','rimJ',5.5,11,0.5,j)}
+        ${sliderInput('ET（偏距）','mm','rimET',0,60,1,et)}`}
+      <div class="kv"><span>輪胎實際斷面寬</span><b>${tireSectionWidth(b.tireW,j).toFixed(0)} mm</b></div>
+      <div class="kv"><span>輪胎總寬（會磨葉子板的值）</span><b>${tireOverallWidth(b.tireW,j).toFixed(0)} mm</b></div>
+      <div class="note ${inRange?'b':'y'}" style="margin-top:var(--s2)">
+        ${b.tireW}/${b.tireAR} 的 ETRTO 允許輪圈寬約 <b>${range[0]}J–${range[1]}J</b>，
+        目前 ${j.toFixed(1)}J ${inRange?'在範圍內':'<b>超出範圍</b>，實際不建議這樣配'}。
+        斷面寬每偏離量測輪圈 0.5 吋約變化 5 mm（ETRTO／Tire Rack）。
+        ${auto?'推估值只是常見配法，不是查到的規格 —— 有實際輪圈資料請關掉自動推估自己填。':'3D 預覽與相容性判斷都吃這一組數字。'}
+      </div>
       <div class="note b" style="margin-top:var(--s2)">${platOf(c)==='dsm2g'
         ?'1997–1999 GSX 原廠為 <b>17×6.5JJ、ET46、215/50R17 90V</b>。變更尺寸時，外徑仍須控制在原廠值 ±2% 內。'
         :'E36 最佳解通常是 <b>245/40R17</b>，外徑僅 +0.13%、速度表幾乎零誤差。避開 235/40R18（+2.90%，超出台灣 2% 門檻）。'}</div></div>`;
@@ -5296,17 +5679,29 @@ function chk(k, label, warn){
     <span>${esc(label)}</span>${warn?`<span class="rt" style="color:var(--red)">${esc(warn)}</span>`:''}</label>`;
 }
 function countAero(b){ return ['lip','skirt','diffuser','hood','wide'].filter(k=>b[k]).length + (b.wing!=='none'?1:0) + (b.tips&&b.tips!=='single'&&b.tips!=='none'?1:0); }
+/* 這台車的原廠 ET（3D 的 hubFace 基準與推估值都靠它） */
+function stockET(c){
+  if(c&&platOf(c)==='dsm2g')return eclipseStockFitment(c).wheelET;
+  return +(c?.wheelET)||47;
+}
+/* estWidth / estET 保留舊名給既有呼叫點，但一律轉呼叫 11-data-wheel.js 的單一來源，
+   確保 3D 預覽與相容性計算用的是同一組 J 寬與 ET。 */
 function estWidth(b){
   const c=car();
-  if(c&&platOf(c)==='dsm2g'&&b.wheel==='ecl-oem')return eclipseStockFitment(c).wheelW;
-  return Math.round((b.tireW/25.4 - 1.6)*2)/2;
+  if(c&&platOf(c)==='dsm2g'&&b.wheel==='ecl-oem'&&rimFitmentIsAuto(b))return eclipseStockFitment(c).wheelW;
+  return rimJOf(b);
 }
 function estET(b){
   const c=car();
-  if(c&&platOf(c)==='dsm2g'&&b.wheel==='ecl-oem')return eclipseStockFitment(c).wheelET;
-  const w = estWidth(b);
-  if(b.size<=15) return 47;
-  if(w<=7.5) return 45; if(w<=8) return 42; if(w<=8.5) return 40; if(w<=9) return 35; return 30;
+  if(c&&platOf(c)==='dsm2g'&&b.wheel==='ecl-oem'&&rimFitmentIsAuto(b))return eclipseStockFitment(c).wheelET;
+  return rimETOf(b, stockET(c));
+}
+/* 切換「自動推估 / 自己填」。關掉自動時，先把目前的推估值寫進去當起點。 */
+function setRimAuto(auto){
+  const c=car(); if(!c) return;
+  if(auto){ c.build.rimJ=null; c.build.rimET=null; }
+  else { c.build.rimJ=rimJOf(c.build); c.build.rimET=rimETOf(c.build, stockET(c)); }
+  saveDB(); render();
 }
 function alignmentScores(b){
   const tire=TIRE_PRODUCTS.find(x=>x.id===b.tireProduct)||TIRE_PRODUCTS[0];

@@ -1,0 +1,21 @@
+Model Information:
+* title:   BBS Wheel
+* source:  https://sketchfab.com/3d-models/bbs-wheel-f7790f517f3e42fb91a00fb9a0405cd6
+* author:  Serjogasan (https://sketchfab.com/Serjogasan)
+
+Model License:
+* license type: ⚠️ 待確認 —— Sketchfab 頁面標示為「Download Free 3D model」，
+  屬免費 CC 授權下載，但具體是哪一種（CC BY / CC BY-NC / CC BY-SA / CC0 …）
+  必須在該頁面「Download 3D Model」按鈕下方的授權標示確認後填入。
+  若為任何含 NC 的變體，本專案（公開網站）不應使用。
+
+轉檔說明（garage-e36-dsm）：
+只取出原素材中的輪輻面（mesh index 2，材質 Wheel），素材自帶的輪胎與輪輞已移除
+（那兩件必須由本程式依 J 寬與 ET 程序化生成，否則改 ET 會失效）。
+座標系已重新烘成 +Z 朝外、原點位於輪輻面外平面；未附加原始貼圖，
+輪圈顏色由程式的 WHEEL_FINISHES 接管。4,852 三角形。
+原作者與授權條件不變。
+
+This work is based on "BBS Wheel"
+(https://sketchfab.com/3d-models/bbs-wheel-f7790f517f3e42fb91a00fb9a0405cd6)
+by Serjogasan (https://sketchfab.com/Serjogasan).
