@@ -8,8 +8,8 @@ const DPARTS = [
   {id:'paint',  name:'車身顏色', ic:'paint',  val:b=>car()?.bodyId==='sedan'?'來源模型原色':paintsOf(car()).find(p=>p.id===b.paint)?.name},
   {id:'wheel',  name:'輪圈',     ic:'disc',   val:b=>car()?.bodyId==='sedan'?'來源模型輪圈':wheelStylesOf(car()).find(w=>w.id===b.wheel)?.name},
   {id:'tire',   name:'輪胎與尺寸',ic:'target',val:b=>TIRE_PRODUCTS.find(x=>x.id===b.tireProduct)?.name},
-  {id:'drop',   name:'懸吊與車高',ic:'arrows', val:b=>SUSPENSION_PRODUCTS.find(x=>x.id===b.suspension)?.name},
-  {id:'brake',  name:'煞車系統', ic:'disc',   val:b=>BRAKE_PRODUCTS.find(x=>x.id===b.brakeKit)?.name},
+  {id:'drop',   name:'懸吊與車高',ic:'arrows', val:b=>suspensionProductsOf(car()).find(x=>x.id===b.suspension)?.name},
+  {id:'brake',  name:'煞車系統', ic:'disc',   val:b=>brakeProductsOf(car()).find(x=>x.id===b.brakeKit)?.name},
   {id:'tint',   name:'隔熱紙',   ic:'eye',    val:b=>TINT_PRODUCTS.find(x=>x.id===b.tintProduct)?.name},
   {id:'aero',   name:'空力套件', ic:'wind',   val:b=>aeroProductsOf(car()).find(x=>x.id===b.aeroKit)?.name},
   {id:'alignment',name:'底盤定位',ic:'suspension',val:b=>`前 ${(+b.camberF).toFixed(1)}° / 後 ${(+b.camberR).toFixed(1)}°`},
@@ -116,20 +116,26 @@ function partPanel(b, c){
         避開 235/40R18（+2.90%，超出台灣 2% 門檻）。</div></div>`;
   }
   if(DPART==='drop'){
+    const products=suspensionProductsOf(c),eclipse=platOf(c)==='dsm2g';
     body = `<div style="padding-top:var(--s2)">
-      <div class="product-grid compact">${SUSPENSION_PRODUCTS.map(x=>productOption(x,b.suspension,'suspension')).join('')}</div>
+      <div class="product-grid compact">${products.map(x=>productOption(x,b.suspension,'suspension')).join('')}</div>
       ${sliderInput('前軸降低','mm','dropF',0,80,1,b.dropF)}
       ${sliderInput('後軸降低','mm','dropR',0,80,1,b.dropR)}
-      <div class="note y" style="margin-top:var(--s2)">降低幅度越大，後副樑鎖點的疲勞風險越高 — 這是 E36 的結構性弱點。
-        施工前請先掀後座地毯與趴車底檢查四個鎖點。</div>
-      <div class="hint">B14 的 E36 官方範圍：前 35–55 mm、後 20–45 mm。前後可分開調整，車身姿態會同步改變。</div></div>`;
+      <div class="note y" style="margin-top:var(--s2)">${eclipse
+        ?'2G Eclipse 前後皆為獨立多連桿；前軸的高置上臂與兩支下臂形成類雙 A 臂幾何。過度降低會改變控制臂工作角度，設定後必須重新定位。'
+        :'降低幅度越大，後副樑鎖點的疲勞風險越高。施工前請檢查 E36 後副樑四個鎖點。'}</div>
+      <div class="hint">${eclipse
+        ?'TEIN 公開的 D33A AWD 建議調整範圍約為前 36–56 mm、後 25–46 mm。'
+        :'B14 的 E36 官方範圍：前 35–55 mm、後 20–45 mm。'}前後可分開調整，車身姿態會同步變化。</div></div>`;
   }
   if(DPART==='brake'){
+    const products=brakeProductsOf(c),selected=products.find(x=>x.id===b.brakeKit)||products[0];
     body = `<div style="padding-top:var(--s2)">
-      <div class="product-grid compact">${BRAKE_PRODUCTS.map(x=>productOption(x,b.brakeKit,'brakeKit')).join('')}</div>
+      <div class="product-grid compact">${products.map(x=>productOption(x,b.brakeKit,'brakeKit')).join('')}</div>
       <div class="swx">${CALIPER_COLORS.map(x=>`<span class="sw ${b.caliper===x.id?'on':''}" style="background:${x.hex}"
         title="${esc(x.name)}" onclick="setB('caliper','${x.id}')"></span>`).join('')}</div>
-      <div class="kv" style="margin-top:var(--s2)"><span>碟盤直徑</span><b>${BRAKE_PRODUCTS.find(x=>x.id===b.brakeKit)?.disc||286} mm</b></div>
+      <div class="kv" style="margin-top:var(--s2)"><span>碟盤直徑</span><b>${selected.disc} mm</b></div>
+      <div class="kv"><span>前卡鉗</span><b>${selected.pistons} 活塞</b></div>
       <div class="hint">卡鉗尺寸、活塞數與碟盤直徑會在輪圈內同步顯示；實際套件仍須核對車型料號與輪圈間隙。</div></div>`;
   }
   if(DPART==='tint'){
@@ -237,11 +243,11 @@ function mutateBuild(b,k,v){
   if(k==='drop'){b.dropF=v;b.dropR=v;}
   if(k==='dropF'||k==='dropR') b.drop=Math.round((+b.dropF+ +b.dropR)/2);
   if(k==='suspension'){
-    const x=SUSPENSION_PRODUCTS.find(p=>p.id===v)||SUSPENSION_PRODUCTS[0];
+    const products=suspensionProductsOf(car()),x=products.find(p=>p.id===v)||products[0];
     b.dropF=x.front[0];b.dropR=x.rear[0];b.drop=Math.round((b.dropF+b.dropR)/2);
   }
   if(k==='brakeKit'){
-    const x=BRAKE_PRODUCTS.find(p=>p.id===v);if(x&&x.color)b.caliper=x.color;
+    const x=brakeProductsOf(car()).find(p=>p.id===v);if(x&&x.color)b.caliper=x.color;
   }
   if(k==='tintProduct'){
     const x=TINT_PRODUCTS.find(p=>p.id===v)||TINT_PRODUCTS[0];b.tint=x.id==='none'?0:100-x.vlt;

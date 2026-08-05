@@ -10,7 +10,9 @@ const PRODUCT_SOURCES = {
   yokohama_ad09:'https://www.y-yokohama.com/global/product/tire/tires/passenger/advan_neova_ad09',
   bilstein_b14:'https://performance.bilstein.com/en/bmw-e36-tuning-perfect-lowering-with-bilstein-coilover-suspension-kits/',
   kw_v3:'https://www.kwsuspensions.com/products/kw-suspensions/kw-variant-3.html',
+  tein_flexz_eclipse:'https://www.tein.com/srch/us_search.php?carmodel=&item=FLEXZ&maker=MITSUBISHI&modelyear=',
   brembo_gt:'https://www.brembo.com/en/solutions/for-your-car/gt-bm4-kit',
+  brembo_eclipse:'https://www.brembo.com/it/Varie/BremboGTR_ApplicationList.pdf',
   film_3m:'https://www.3m.com.tw/3M/zh_TW/automotive-window-solutions-tw/solutions/auto-window-film/MA-series/',
   bmw_e36_m3:'https://www.press.bmwgroup.com/usa/article/detail/T0449845EN_US/bmw-na-50th-anniversary-%7C-50-stories-for-50-years-chapter-17%3A-%E2%80%9Cbmw-m-achieves-wide-appeal%3A-unique-e36-m3-models-for-the-u-s-%E2%80%9D?language=en_US',
   eclipse_duraflex:'https://www.duraflexbodykits.com/featured-body-kits-vehicle-catalogs/mitsubishi-body-kits/1995-1999-mitsubishi-eclipse-body-kits/?manufacturer=2977',
@@ -31,12 +33,30 @@ const SUSPENSION_PRODUCTS = [
   {id:'kwv3',brand:'KW',name:'Variant 3',front:[25,60],rear:[20,55],img:'',src:'kw_v3'},
 ];
 
+const ECL_SUSPENSION_PRODUCTS = [
+  {id:'stock',brand:'Mitsubishi',name:'2G 原廠避震',front:[0,0],rear:[0,0],img:'',src:''},
+  {id:'tein-flexz',brand:'TEIN',name:'FLEX Z｜2G Eclipse',front:[36,56],rear:[25,46],
+   img:'',src:'tein_flexz_eclipse'},
+];
+
 const BRAKE_PRODUCTS = [
   {id:'stock',brand:'OEM',name:'原廠單活塞',pistons:1,disc:286,color:'stock',img:'',src:''},
   {id:'m3',brand:'BMW M',name:'E36 M3 315 mm',pistons:1,disc:315,color:'blue',img:'',src:''},
   {id:'brembo',brand:'Brembo',name:'GT | BM4 四活塞',pistons:4,disc:355,color:'red',
    img:'https://brem-p-001.sitecorecontenthub.cloud/api/public/content/34c1dfb67a664fc28c322e2a7a7f3b60?v=8326c1bb',src:'brembo_gt'},
 ];
+
+const ECL_BRAKE_PRODUCTS = [
+  {id:'stock',brand:'Mitsubishi',name:'2G 256 mm 單活塞',pistons:1,disc:256,color:'stock',img:'',src:''},
+  {id:'ecl-brembo',brand:'Brembo',name:'GT 328 mm 四活塞',pistons:4,disc:328,color:'red',img:'',src:'brembo_eclipse'},
+];
+
+function suspensionProductsOf(c){ return platOf(c)==='dsm2g'?ECL_SUSPENSION_PRODUCTS:SUSPENSION_PRODUCTS; }
+function eclipseBrakeProducts(modelId){
+  return ECL_BRAKE_PRODUCTS.map(x=>x.id==='stock'&&modelId==='ecl-gsx'
+    ?{...x,name:'GSX 276 mm 雙活塞',pistons:2,disc:276}:x);
+}
+function brakeProductsOf(c){ return platOf(c)==='dsm2g'?eclipseBrakeProducts(c?.modelId):BRAKE_PRODUCTS; }
 
 const TINT_PRODUCTS = [
   {id:'none',brand:'OEM',name:'無隔熱紙',vlt:100,img:'',src:''},

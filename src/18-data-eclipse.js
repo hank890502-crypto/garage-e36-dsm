@@ -263,9 +263,9 @@ const ALL_MAINT = () => [...MAINT_ITEMS, ...ECL_MAINT];
 
 /* ---------------- Eclipse 輪圈款式 ---------------- */
 const ECL_WHEEL_STYLES = [
-  {id:'ecl-oem',brand:'Mitsubishi',name:'2G GS-T / GSX 原廠六輻',cat:'六輻',spokes:6,wide:true},
-  {id:'ecl-mesh6',brand:'Mitsubishi',name:'原廠六雙輻',cat:'六雙輻',spokes:12,pair:true,thin:true},
-  {id:'ecl-gold',brand:'Rally',name:'六輻競技款',cat:'六輻',spokes:6,wide:true,dish:true},
+  {id:'ecl-oem',brand:'Mitsubishi',name:'2G GS-T / GSX 原廠六輻',cat:'六輻鑄造',spokes:6,innerW:.052,outerW:.086,hubScale:1.08},
+  {id:'ecl-mesh6',brand:'Mitsubishi',name:'原廠六雙輻',cat:'六雙輻鑄造',spokes:12,pair:true,thin:true,pairSpread:.027,innerW:.026,outerW:.038},
+  {id:'ecl-gold',brand:'Rally',name:'六輻競技款',cat:'六輻',spokes:6,innerW:.045,outerW:.078,dish:true,concave:true},
 ];
 /* E36 的鋁圈素材造型通用，兩個平台都可以選 */
 const wheelStylesOf = c => platOf(c)==='dsm2g'
