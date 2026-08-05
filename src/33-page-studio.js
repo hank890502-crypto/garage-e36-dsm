@@ -3,6 +3,14 @@
    ========================================================================== */
 let AB = false, ABPOS = 50, DPART = null;
 const paintsOf = c => platOf(c)==='dsm2g'?ECL_PAINTS:PAINTS;
+function stockBuildFor(c,paint){
+  const build={...blankCar().build,paint,wheel:platOf(c)==='dsm2g'?'ecl-oem':'st42'};
+  if(platOf(c)==='dsm2g'){
+    const stock=eclipseStockFitment(c);
+    Object.assign(build,{size:stock.size,tireW:stock.tireW,tireAR:stock.tireAR});
+  }
+  return build;
+}
 
 const DPARTS = [
   {id:'paint',  name:'車身顏色', ic:'paint',  val:b=>car()?.bodyId==='sedan'?'來源模型原色':paintsOf(car()).find(p=>p.id===b.paint)?.name},
@@ -23,7 +31,7 @@ function pgDesign(){
     ${esc(platName(platOf(c)))} 目前有：${bodiesOf(platOf(c)).filter(x=>hasCar3D(x.id)).map(x=>esc(x.name)).join('、')}</span></p>
     <button class="btn pri" onclick="editCar('${c.id}')">${c.bodyId?'編輯車輛':'去選車身型式'}</button></div></div>`;
   const b = c.build;
-  const stock = {...blankCar().build,paint:b.paint,wheel:platOf(c)==='dsm2g'?'ecl-oem':'st42'};
+  const stock = stockBuildFor(c,b.paint);
   const wc = wheelCheck(c, {size:b.size, width:estWidth(b), et:estET(b), tireW:b.tireW, tireAR:b.tireAR});
 
   return `
@@ -112,8 +120,9 @@ function partPanel(b, c){
       ${sliderInput('扁平比','%','tireAR',25,70,5,b.tireAR)}
       <div class="kv"><span>規格</span><b>${b.tireW}/${b.tireAR} R${b.size}</b></div>
       <div class="kv"><span>外徑</span><b>${od.toFixed(0)} mm</b></div>
-      <div class="note b" style="margin-top:var(--s2)">E36 最佳解通常是 <b>245/40R17</b>，外徑僅 +0.13%、速度表幾乎零誤差。
-        避開 235/40R18（+2.90%，超出台灣 2% 門檻）。</div></div>`;
+      <div class="note b" style="margin-top:var(--s2)">${platOf(c)==='dsm2g'
+        ?'1997–1999 GSX 原廠為 <b>17×6.5JJ、ET46、215/50R17 90V</b>。變更尺寸時，外徑仍須控制在原廠值 ±2% 內。'
+        :'E36 最佳解通常是 <b>245/40R17</b>，外徑僅 +0.13%、速度表幾乎零誤差。避開 235/40R18（+2.90%，超出台灣 2% 門檻）。'}</div></div>`;
   }
   if(DPART==='drop'){
     const products=suspensionProductsOf(c),eclipse=platOf(c)==='dsm2g';
@@ -187,8 +196,14 @@ function chk(k, label, warn){
     <span>${esc(label)}</span>${warn?`<span class="rt" style="color:var(--red)">${esc(warn)}</span>`:''}</label>`;
 }
 function countAero(b){ return ['lip','skirt','diffuser','hood','wide'].filter(k=>b[k]).length + (b.wing!=='none'?1:0) + (b.tips&&b.tips!=='single'&&b.tips!=='none'?1:0); }
-function estWidth(b){ return Math.round((b.tireW/25.4 - 1.6)*2)/2; }
+function estWidth(b){
+  const c=car();
+  if(c&&platOf(c)==='dsm2g'&&b.wheel==='ecl-oem')return eclipseStockFitment(c).wheelW;
+  return Math.round((b.tireW/25.4 - 1.6)*2)/2;
+}
 function estET(b){
+  const c=car();
+  if(c&&platOf(c)==='dsm2g'&&b.wheel==='ecl-oem')return eclipseStockFitment(c).wheelET;
   const w = estWidth(b);
   if(b.size<=15) return 47;
   if(w<=7.5) return 45; if(w<=8) return 42; if(w<=8.5) return 40; if(w<=9) return 35; return 30;
@@ -274,8 +289,7 @@ function applyAlignmentPreset(id){
 function resetBuild(){
   const c = car(); if(!c) return;
   const keep = c.build.paint;
-  c.build = blankCar().build;c.build.paint=keep;
-  if(platOf(c)==='dsm2g')c.build.wheel='ecl-oem';
+  c.build = stockBuildFor(c,keep);
   saveDB(); render(); toast('已回到原廠設定');
 }
 

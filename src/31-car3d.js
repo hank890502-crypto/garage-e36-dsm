@@ -26,7 +26,7 @@ const CAR3D_BODY_CONFIG = {
   touring:{wheelMode:'replace',frontX:-1.472,rearX:1.229,frontY:.311,rearY:.311,frontTrack:.735,rearTrack:.745,
     repairMaterials:true,smoothPaintNormals:true,relaxPaintSurface:4,paintRoughness:.33},
   cabrio:{wheelMode:'replace',frontX:-1.350,rearX:1.256,frontY:.300,rearY:.314,frontTrack:.740,rearTrack:.755},
-  coupe2g:{wheelMode:'replace',yOffset:.105,frontX:-1.305,rearX:1.205,frontY:.315,rearY:.315,frontTrack:.650,rearTrack:.650,
+  coupe2g:{wheelMode:'replace',yOffset:.155,frontX:-1.305,rearX:1.205,frontTrack:.758,rearTrack:.753,
     repairMaterials:true,smoothPaintNormals:true,relaxPaintSurface:3,paintRoughness:.30},
 };
 const CAR3D_REVERSED_BODIES=new Set(['compact']);
@@ -386,15 +386,42 @@ function addBrakeModule(THREE,parent,build,rimR,tireW,side,front){
   caliper.scale.set(front?1:.82,front?1:.82,.82);
 }
 
+function tireProfileGeometry(THREE,tireR,rimR,tireW){
+  const sidewall=Math.max(.045,tireR-rimR),half=tireW/2,bead=rimR*1.012;
+  const points=[
+    [bead,-half*.72],[rimR+sidewall*.16,-half*.88],[rimR+sidewall*.52,-half],
+    [rimR+sidewall*.86,-half*.94],[tireR,-half*.76],[tireR+.001,-half*.38],
+    [tireR+.001,half*.38],[tireR,half*.76],[rimR+sidewall*.86,half*.94],
+    [rimR+sidewall*.52,half],[rimR+sidewall*.16,half*.88],[bead,half*.72],
+  ].map(([radius,axial])=>new THREE.Vector2(radius,axial));
+  const geometry=new THREE.LatheGeometry(points,64);geometry.rotateX(Math.PI/2);geometry.computeVertexNormals();
+  return geometry;
+}
+
+function addTireDetails(THREE,parent,tireR,rimR,tireW){
+  const groove=mat(THREE,0x070909,{roughness:.98,metalness:0}),sidewall=mat(THREE,0x1a1d1c,{roughness:.92,metalness:0});
+  [-.42,-.14,.14,.42].forEach(offset=>{
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(tireR+.0015,.0022,6,72),groove);
+    ring.position.z=offset*tireW;parent.add(ring);
+  });
+  [-1,1].forEach(side=>{
+    const shoulder=new THREE.Mesh(new THREE.TorusGeometry(rimR+(tireR-rimR)*.52,.002,6,64),sidewall);
+    shoulder.position.z=side*tireW*.495;parent.add(shoulder);
+    const bead=new THREE.Mesh(new THREE.TorusGeometry(rimR*1.018,.0045,7,64),sidewall);
+    bead.position.z=side*tireW*.36;parent.add(bead);
+  });
+}
+
 function makeWheel(THREE, build, tireR, tireW, side, front){
   const g=new THREE.Group(), preset=wheelPreset(build.wheel);
   const od=(+build.size||17)*.0254+2*((+build.tireW||225)/1000*((+build.tireAR||45)/100));
   const rimR=Math.min(tireR*.82,tireR*((+build.size||17)*.0254/Math.max(.2,od)));
   const sidewall=Math.max(.045,tireR-rimR), tireMat=mat(THREE,0x111312,{roughness:.88,metalness:0});
-  const tire=mesh(THREE,g,new THREE.TorusGeometry(tireR-sidewall*.52,sidewall*.52,12,48),tireMat);
-  tire.scale.z=tireW/sidewall;
+  mesh(THREE,g,tireProfileGeometry(THREE,tireR,rimR,tireW),tireMat);
+  addTireDetails(THREE,g,tireR,rimR,tireW);
   const fin=WHEEL_FINISHES.find(x=>x.id===build.finish)||WHEEL_FINISHES[0];
-  const rimMat=new THREE.MeshStandardMaterial({color:fin.face,metalness:preset.steel?.48:.64,roughness:preset.steel?.40:.23});
+  const rimMat=new THREE.MeshStandardMaterial({color:fin.face,metalness:preset.cast?.52:preset.steel?.48:.64,
+    roughness:preset.cast?.34:preset.steel?.40:.23});
   const lipMat=new THREE.MeshStandardMaterial({color:fin.lip||fin.face,metalness:.76,roughness:.16});
   addSuspensionModule(THREE,g,build,rimR,tireW,side,front);
   addBrakeModule(THREE,g,build,rimR,tireW,side,front);
@@ -412,13 +439,15 @@ function makeWheel(THREE, build, tireR, tireW, side, front){
       if(preset.concave)spoke.position.z-=side*.035;
     });
   }
-  mesh(THREE,g,new THREE.CylinderGeometry(rimR*.16*(preset.hubScale||1),rimR*.16*(preset.hubScale||1),.045,32),rimMat,[0,0,faceZ],[Math.PI/2,0,0]);
+  mesh(THREE,g,new THREE.CylinderGeometry(rimR*.125*(preset.hubScale||1),rimR*.125*(preset.hubScale||1),.040,32),rimMat,[0,0,faceZ],[Math.PI/2,0,0]);
   for(let i=0;i<5;i++){
     const a=i/5*Math.PI*2;
-    mesh(THREE,g,new THREE.CylinderGeometry(.012,.012,.018,12),lipMat,[Math.cos(a)*rimR*.105,Math.sin(a)*rimR*.105,faceZ+side*.026],[Math.PI/2,0,0],false);
+    mesh(THREE,g,new THREE.CylinderGeometry(.008,.008,.015,12),lipMat,[Math.cos(a)*rimR*.075,Math.sin(a)*rimR*.075,faceZ+side*.023],[Math.PI/2,0,0],false);
   }
-  const lip=new THREE.Mesh(new THREE.TorusGeometry(rimR*.91,rimR*.045,10,64),lipMat);lip.position.z=faceZ;g.add(lip);
-  const bead=new THREE.Mesh(new THREE.TorusGeometry(rimR*.99,rimR*.018,8,64),rimMat);bead.position.z=faceZ-side*.012;g.add(bead);
+  const lip=new THREE.Mesh(new THREE.TorusGeometry(rimR*.94,rimR*(preset.lipScale||.045),10,64),preset.cast?rimMat:lipMat);
+  lip.position.z=faceZ;g.add(lip);
+  const bead=new THREE.Mesh(new THREE.TorusGeometry(rimR*.99,rimR*(preset.cast?.010:.018),8,64),rimMat);
+  bead.position.z=faceZ-side*.012;g.add(bead);
   return g;
 }
 
@@ -433,10 +462,11 @@ function addWheels(THREE, root, spec, build, tireR){
     const track=baseTrack+(+(front?build.trackF:build.trackR)||0)/2000;
     const camber=+(front?build.camberF:build.camberR)||0,toe=+(front?build.toeF:build.toeR)||0;
     const wheelBuild={...build,platform:spec.eclipse?'dsm2g':'e36'};
-    const w=makeWheel(THREE,wheelBuild,tireR,tireW,side,front);w.position.set(x,y||tireR,side*track);
+    const wheelY=Number.isFinite(y)?y:tireR;
+    const w=makeWheel(THREE,wheelBuild,tireR,tireW,side,front);w.position.set(x,wheelY,side*track);
     w.rotation.order='YXZ';w.rotation.x=side*THREE.MathUtils.degToRad(camber);
     w.rotation.y=side*THREE.MathUtils.degToRad(toe);
-    Object.assign(w.userData,{carWheel:true,front,side,baseTrack,baseY:y||tireR});root.add(w);
+    Object.assign(w.userData,{carWheel:true,front,side,baseTrack,baseY:wheelY});root.add(w);
   }));
 }
 
@@ -917,9 +947,7 @@ function setImportedVisibility(model, spec, build){
     hideDirectChild('eclipse_body','eclipse_underbody-material');
     hideDirectChild('eclipse_body','eclipse_Juiced_nosskirt-material');
     hideDirectChild('eclipse_body','eclipse_black-material');
-    set('eclipse_tubs',true);hideDirectChild('eclipse_tubs','eclipse_black-material');
-    hideDirectChild('eclipse_fender_L','eclipse_black-material');
-    hideDirectChild('eclipse_fender_R','eclipse_black-material');
+    set('eclipse_tubs',true);
     const kit=build.aeroKit==='duraflex-b2';
     set('eclipse_bumper_F',!kit);set('eclipse_bumper_R',!kit);
     set('eclipse_bumperkit_F',kit);set('eclipse_bumperkit_R',kit);
@@ -955,7 +983,7 @@ async function buildImportedCarModel(THREE, GLTFLoader, MeshoptDecoder, spec, bu
   const dropF=Math.max(0,+build.dropF||+build.drop||0),dropR=Math.max(0,+build.dropR||+build.drop||0);
   const baseY=model.position.y;model.position.y-=(dropF+dropR)/2000;model.rotation.z=(dropF-dropR)/1000/Math.max(1,spec.wheelbase);
   Object.assign(model.userData,{vehicleBody:true,baseY});root.add(model);
-  const tireR=car3DTireRadius(build),wheelBuild={...build,tireW:Math.min(+build.tireW||225,spec.eclipse?225:235)};
+  const tireR=car3DTireRadius(build),wheelBuild={...build,tireW:Math.min(+build.tireW||225,spec.eclipse?265:285)};
   addWheels(THREE,root,spec,wheelBuild,tireR);
   return root;
 }

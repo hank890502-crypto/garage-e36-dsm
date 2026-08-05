@@ -32,6 +32,18 @@ function normalizeCarData(c){
   if(!Array.isArray(c.fuelLogs)) c.fuelLogs=[];
   const old=c.build||{},fresh=blankCar();
   c.build=Object.assign(structuredClone(fresh.build),old);
+  const eclipse=platOf(c)==='dsm2g';
+  if(eclipse&&typeof eclipseStockFitment==='function'){
+    const stock=eclipseStockFitment(c),baseTire=String(c.tire||'').replace(/\s/g,'').toUpperCase();
+    const inheritedE36Base=+c.wheelW===7&&+c.wheelET===47&&baseTire==='205/60R15';
+    const oldEclipseBase=c.modelId==='ecl-gsx'&&+c.year>=1997&&+c.wheelW===6&&+c.wheelET===46&&baseTire==='205/55R16';
+    const migrateFitment=(+c.fitmentSpecVersion||0)<2;
+    if(migrateFitment&&(inheritedE36Base||oldEclipseBase))
+      Object.assign(c,{wheelW:stock.wheelW,wheelET:stock.wheelET,tire:stock.tire});
+    const inheritedPreview=c.build.wheel==='ecl-oem'&&+c.build.size===17&&+c.build.tireW===245&&+c.build.tireAR===40;
+    if(migrateFitment&&inheritedPreview)Object.assign(c.build,{size:stock.size,tireW:stock.tireW,tireAR:stock.tireAR});
+    c.fitmentSpecVersion=2;
+  }
   if(c.build.dropF===0&&c.build.drop)c.build.dropF=c.build.drop;
   if(c.build.dropR===0&&c.build.drop)c.build.dropR=c.build.drop;
   if(!Object.hasOwn(old,'suspension')&&c.build.drop>0)c.build.suspension='b14';
@@ -47,7 +59,7 @@ function normalizeCarData(c){
   if(!brakeSet.some(x=>x.id===c.build.brakeKit)){
     c.build.brakeKit='stock';c.build.caliper='stock';
   }
-  const eclipse=platOf(c)==='dsm2g',paintSet=eclipse?ECL_PAINTS:PAINTS;
+  const paintSet=eclipse?ECL_PAINTS:PAINTS;
   if(!paintSet.some(x=>x.id===c.build.paint)){
     const eclipsePaintAlias={alpine:'ecl-white',schwarz:'ecl-black',cosmos:'ecl-black',arktis:'ecl-silver',nardo:'ecl-silver',
       hellrot:'ecl-red',mugello:'ecl-maroon',boston:'ecl-green',britgrn:'ecl-green'};

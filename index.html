@@ -2339,14 +2339,27 @@ const ECL_TRANS = [
 const ECL_HUB = {
   pcd:'5x114.3', bore:67.1, bolt:'M12×1.5', seat:'錐座', boltLen:0,
   torque:'120–140 N-m（87–101 ft-lb）', et:46,
-  note:'手冊 Wheels 章節記載：原廠鋁圈與鋼圈的 P.C.D. 一律 114.3 mm、offset 一律 46 mm。低階 14×5.5JJ、高階 16×6JJ。中心孔 67.1 mm 手冊未載明，為社群通用數值。',
+  note:'手冊 Wheels 章節記載：原廠鋁圈與鋼圈的 P.C.D. 一律 114.3 mm、offset 一律 46 mm。1997–1999 GSX 使用 17×6.5JJ；中心孔 67.1 mm 手冊未載明，為社群通用數值。',
 };
 const ECL_OEM_WHEEL = [
   {trim:'RS / GS 基本', wheel:'14 × 5.5JJ', et:46, tire:'P185/70R14 87S'},
   {trim:'中階',         wheel:'14 × 5.5JJ', et:46, tire:'P195/70R14 90H'},
-  {trim:'GS-T / GSX',   wheel:'16 × 6JJ',   et:46, tire:'P205/55R16 89H'},
+  {trim:'GS / GS-T',    wheel:'16 × 6JJ',   et:46, tire:'P205/55R16 89H'},
+  {trim:'GSX（1995–1996）', wheel:'16 × 6JJ', et:46, tire:'P205/55R16 或 P215/55R16'},
+  {trim:'GSX（1997–1999）', wheel:'17 × 6.5JJ', et:46, tire:'P215/50R17 90V'},
   {trim:'備胎（全車系）', wheel:'15 × 4T / 16 × 4T', et:46, tire:'T125/70D15'},
 ];
+
+function eclipseStockFitment(c={}){
+  const id=c.modelId||'',year=+c.year||1997,manual=/手排|manual|w5m33/i.test(c.trans||'');
+  if(id==='ecl-gsx'&&year>=1997)
+    return {wheelW:6.5,wheelET:46,tire:'215/50R17',size:17,tireW:215,tireAR:50};
+  if(id==='ecl-gsx')
+    return {wheelW:6,wheelET:46,tire:manual?'215/55R16':'205/55R16',size:16,tireW:manual?215:205,tireAR:55};
+  if(id==='ecl-rs')
+    return {wheelW:5.5,wheelET:46,tire:'185/70R14',size:14,tireW:185,tireAR:70};
+  return {wheelW:6,wheelET:46,tire:'205/55R16',size:16,tireW:205,tireAR:55};
+}
 
 /* ---------------- 原廠數據（全部來自手冊，標明章節） ---------------- */
 const ECL_SVC = [
@@ -2534,7 +2547,8 @@ const ALL_MAINT = () => [...MAINT_ITEMS, ...ECL_MAINT];
 
 /* ---------------- Eclipse 輪圈款式 ---------------- */
 const ECL_WHEEL_STYLES = [
-  {id:'ecl-oem',brand:'Mitsubishi',name:'2G GS-T / GSX 原廠六輻',cat:'六輻鑄造',spokes:6,innerW:.052,outerW:.086,hubScale:1.08},
+  {id:'ecl-oem',brand:'Mitsubishi',name:'GSX 原廠十輻',cat:'1997–1999 · 17×6.5J',spokes:10,
+   innerW:.025,outerW:.021,hubScale:.82,cast:true,lipScale:.020},
   {id:'ecl-mesh6',brand:'Mitsubishi',name:'原廠六雙輻',cat:'六雙輻鑄造',spokes:12,pair:true,thin:true,pairSpread:.027,innerW:.026,outerW:.038},
   {id:'ecl-gold',brand:'Rally',name:'六輻競技款',cat:'六輻',spokes:6,innerW:.045,outerW:.078,dish:true,concave:true},
 ];
@@ -2842,6 +2856,18 @@ function normalizeCarData(c){
   if(!Array.isArray(c.fuelLogs)) c.fuelLogs=[];
   const old=c.build||{},fresh=blankCar();
   c.build=Object.assign(structuredClone(fresh.build),old);
+  const eclipse=platOf(c)==='dsm2g';
+  if(eclipse&&typeof eclipseStockFitment==='function'){
+    const stock=eclipseStockFitment(c),baseTire=String(c.tire||'').replace(/\s/g,'').toUpperCase();
+    const inheritedE36Base=+c.wheelW===7&&+c.wheelET===47&&baseTire==='205/60R15';
+    const oldEclipseBase=c.modelId==='ecl-gsx'&&+c.year>=1997&&+c.wheelW===6&&+c.wheelET===46&&baseTire==='205/55R16';
+    const migrateFitment=(+c.fitmentSpecVersion||0)<2;
+    if(migrateFitment&&(inheritedE36Base||oldEclipseBase))
+      Object.assign(c,{wheelW:stock.wheelW,wheelET:stock.wheelET,tire:stock.tire});
+    const inheritedPreview=c.build.wheel==='ecl-oem'&&+c.build.size===17&&+c.build.tireW===245&&+c.build.tireAR===40;
+    if(migrateFitment&&inheritedPreview)Object.assign(c.build,{size:stock.size,tireW:stock.tireW,tireAR:stock.tireAR});
+    c.fitmentSpecVersion=2;
+  }
   if(c.build.dropF===0&&c.build.drop)c.build.dropF=c.build.drop;
   if(c.build.dropR===0&&c.build.drop)c.build.dropR=c.build.drop;
   if(!Object.hasOwn(old,'suspension')&&c.build.drop>0)c.build.suspension='b14';
@@ -2857,7 +2883,7 @@ function normalizeCarData(c){
   if(!brakeSet.some(x=>x.id===c.build.brakeKit)){
     c.build.brakeKit='stock';c.build.caliper='stock';
   }
-  const eclipse=platOf(c)==='dsm2g',paintSet=eclipse?ECL_PAINTS:PAINTS;
+  const paintSet=eclipse?ECL_PAINTS:PAINTS;
   if(!paintSet.some(x=>x.id===c.build.paint)){
     const eclipsePaintAlias={alpine:'ecl-white',schwarz:'ecl-black',cosmos:'ecl-black',arktis:'ecl-silver',nardo:'ecl-silver',
       hellrot:'ecl-red',mugello:'ecl-maroon',boston:'ecl-green',britgrn:'ecl-green'};
@@ -3489,7 +3515,7 @@ const CAR3D_BODY_CONFIG = {
   touring:{wheelMode:'replace',frontX:-1.472,rearX:1.229,frontY:.311,rearY:.311,frontTrack:.735,rearTrack:.745,
     repairMaterials:true,smoothPaintNormals:true,relaxPaintSurface:4,paintRoughness:.33},
   cabrio:{wheelMode:'replace',frontX:-1.350,rearX:1.256,frontY:.300,rearY:.314,frontTrack:.740,rearTrack:.755},
-  coupe2g:{wheelMode:'replace',yOffset:.105,frontX:-1.305,rearX:1.205,frontY:.315,rearY:.315,frontTrack:.650,rearTrack:.650,
+  coupe2g:{wheelMode:'replace',yOffset:.155,frontX:-1.305,rearX:1.205,frontTrack:.758,rearTrack:.753,
     repairMaterials:true,smoothPaintNormals:true,relaxPaintSurface:3,paintRoughness:.30},
 };
 const CAR3D_REVERSED_BODIES=new Set(['compact']);
@@ -3849,15 +3875,42 @@ function addBrakeModule(THREE,parent,build,rimR,tireW,side,front){
   caliper.scale.set(front?1:.82,front?1:.82,.82);
 }
 
+function tireProfileGeometry(THREE,tireR,rimR,tireW){
+  const sidewall=Math.max(.045,tireR-rimR),half=tireW/2,bead=rimR*1.012;
+  const points=[
+    [bead,-half*.72],[rimR+sidewall*.16,-half*.88],[rimR+sidewall*.52,-half],
+    [rimR+sidewall*.86,-half*.94],[tireR,-half*.76],[tireR+.001,-half*.38],
+    [tireR+.001,half*.38],[tireR,half*.76],[rimR+sidewall*.86,half*.94],
+    [rimR+sidewall*.52,half],[rimR+sidewall*.16,half*.88],[bead,half*.72],
+  ].map(([radius,axial])=>new THREE.Vector2(radius,axial));
+  const geometry=new THREE.LatheGeometry(points,64);geometry.rotateX(Math.PI/2);geometry.computeVertexNormals();
+  return geometry;
+}
+
+function addTireDetails(THREE,parent,tireR,rimR,tireW){
+  const groove=mat(THREE,0x070909,{roughness:.98,metalness:0}),sidewall=mat(THREE,0x1a1d1c,{roughness:.92,metalness:0});
+  [-.42,-.14,.14,.42].forEach(offset=>{
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(tireR+.0015,.0022,6,72),groove);
+    ring.position.z=offset*tireW;parent.add(ring);
+  });
+  [-1,1].forEach(side=>{
+    const shoulder=new THREE.Mesh(new THREE.TorusGeometry(rimR+(tireR-rimR)*.52,.002,6,64),sidewall);
+    shoulder.position.z=side*tireW*.495;parent.add(shoulder);
+    const bead=new THREE.Mesh(new THREE.TorusGeometry(rimR*1.018,.0045,7,64),sidewall);
+    bead.position.z=side*tireW*.36;parent.add(bead);
+  });
+}
+
 function makeWheel(THREE, build, tireR, tireW, side, front){
   const g=new THREE.Group(), preset=wheelPreset(build.wheel);
   const od=(+build.size||17)*.0254+2*((+build.tireW||225)/1000*((+build.tireAR||45)/100));
   const rimR=Math.min(tireR*.82,tireR*((+build.size||17)*.0254/Math.max(.2,od)));
   const sidewall=Math.max(.045,tireR-rimR), tireMat=mat(THREE,0x111312,{roughness:.88,metalness:0});
-  const tire=mesh(THREE,g,new THREE.TorusGeometry(tireR-sidewall*.52,sidewall*.52,12,48),tireMat);
-  tire.scale.z=tireW/sidewall;
+  mesh(THREE,g,tireProfileGeometry(THREE,tireR,rimR,tireW),tireMat);
+  addTireDetails(THREE,g,tireR,rimR,tireW);
   const fin=WHEEL_FINISHES.find(x=>x.id===build.finish)||WHEEL_FINISHES[0];
-  const rimMat=new THREE.MeshStandardMaterial({color:fin.face,metalness:preset.steel?.48:.64,roughness:preset.steel?.40:.23});
+  const rimMat=new THREE.MeshStandardMaterial({color:fin.face,metalness:preset.cast?.52:preset.steel?.48:.64,
+    roughness:preset.cast?.34:preset.steel?.40:.23});
   const lipMat=new THREE.MeshStandardMaterial({color:fin.lip||fin.face,metalness:.76,roughness:.16});
   addSuspensionModule(THREE,g,build,rimR,tireW,side,front);
   addBrakeModule(THREE,g,build,rimR,tireW,side,front);
@@ -3875,13 +3928,15 @@ function makeWheel(THREE, build, tireR, tireW, side, front){
       if(preset.concave)spoke.position.z-=side*.035;
     });
   }
-  mesh(THREE,g,new THREE.CylinderGeometry(rimR*.16*(preset.hubScale||1),rimR*.16*(preset.hubScale||1),.045,32),rimMat,[0,0,faceZ],[Math.PI/2,0,0]);
+  mesh(THREE,g,new THREE.CylinderGeometry(rimR*.125*(preset.hubScale||1),rimR*.125*(preset.hubScale||1),.040,32),rimMat,[0,0,faceZ],[Math.PI/2,0,0]);
   for(let i=0;i<5;i++){
     const a=i/5*Math.PI*2;
-    mesh(THREE,g,new THREE.CylinderGeometry(.012,.012,.018,12),lipMat,[Math.cos(a)*rimR*.105,Math.sin(a)*rimR*.105,faceZ+side*.026],[Math.PI/2,0,0],false);
+    mesh(THREE,g,new THREE.CylinderGeometry(.008,.008,.015,12),lipMat,[Math.cos(a)*rimR*.075,Math.sin(a)*rimR*.075,faceZ+side*.023],[Math.PI/2,0,0],false);
   }
-  const lip=new THREE.Mesh(new THREE.TorusGeometry(rimR*.91,rimR*.045,10,64),lipMat);lip.position.z=faceZ;g.add(lip);
-  const bead=new THREE.Mesh(new THREE.TorusGeometry(rimR*.99,rimR*.018,8,64),rimMat);bead.position.z=faceZ-side*.012;g.add(bead);
+  const lip=new THREE.Mesh(new THREE.TorusGeometry(rimR*.94,rimR*(preset.lipScale||.045),10,64),preset.cast?rimMat:lipMat);
+  lip.position.z=faceZ;g.add(lip);
+  const bead=new THREE.Mesh(new THREE.TorusGeometry(rimR*.99,rimR*(preset.cast?.010:.018),8,64),rimMat);
+  bead.position.z=faceZ-side*.012;g.add(bead);
   return g;
 }
 
@@ -3896,10 +3951,11 @@ function addWheels(THREE, root, spec, build, tireR){
     const track=baseTrack+(+(front?build.trackF:build.trackR)||0)/2000;
     const camber=+(front?build.camberF:build.camberR)||0,toe=+(front?build.toeF:build.toeR)||0;
     const wheelBuild={...build,platform:spec.eclipse?'dsm2g':'e36'};
-    const w=makeWheel(THREE,wheelBuild,tireR,tireW,side,front);w.position.set(x,y||tireR,side*track);
+    const wheelY=Number.isFinite(y)?y:tireR;
+    const w=makeWheel(THREE,wheelBuild,tireR,tireW,side,front);w.position.set(x,wheelY,side*track);
     w.rotation.order='YXZ';w.rotation.x=side*THREE.MathUtils.degToRad(camber);
     w.rotation.y=side*THREE.MathUtils.degToRad(toe);
-    Object.assign(w.userData,{carWheel:true,front,side,baseTrack,baseY:y||tireR});root.add(w);
+    Object.assign(w.userData,{carWheel:true,front,side,baseTrack,baseY:wheelY});root.add(w);
   }));
 }
 
@@ -4380,9 +4436,7 @@ function setImportedVisibility(model, spec, build){
     hideDirectChild('eclipse_body','eclipse_underbody-material');
     hideDirectChild('eclipse_body','eclipse_Juiced_nosskirt-material');
     hideDirectChild('eclipse_body','eclipse_black-material');
-    set('eclipse_tubs',true);hideDirectChild('eclipse_tubs','eclipse_black-material');
-    hideDirectChild('eclipse_fender_L','eclipse_black-material');
-    hideDirectChild('eclipse_fender_R','eclipse_black-material');
+    set('eclipse_tubs',true);
     const kit=build.aeroKit==='duraflex-b2';
     set('eclipse_bumper_F',!kit);set('eclipse_bumper_R',!kit);
     set('eclipse_bumperkit_F',kit);set('eclipse_bumperkit_R',kit);
@@ -4418,7 +4472,7 @@ async function buildImportedCarModel(THREE, GLTFLoader, MeshoptDecoder, spec, bu
   const dropF=Math.max(0,+build.dropF||+build.drop||0),dropR=Math.max(0,+build.dropR||+build.drop||0);
   const baseY=model.position.y;model.position.y-=(dropF+dropR)/2000;model.rotation.z=(dropF-dropR)/1000/Math.max(1,spec.wheelbase);
   Object.assign(model.userData,{vehicleBody:true,baseY});root.add(model);
-  const tireR=car3DTireRadius(build),wheelBuild={...build,tireW:Math.min(+build.tireW||225,spec.eclipse?225:235)};
+  const tireR=car3DTireRadius(build),wheelBuild={...build,tireW:Math.min(+build.tireW||225,spec.eclipse?265:285)};
   addWheels(THREE,root,spec,wheelBuild,tireR);
   return root;
 }
@@ -4952,16 +5006,16 @@ function carPlatFields(c){
     : ['EU 歐規','US 北美','JP 日規','TW 台灣總代理','平行輸入'];
   return `
     <div class="fld"><label>車輛暱稱</label><input class="inp" id="f_name" value="${esc(c.name)}" placeholder="留空會自動用車型組合"></div>
-    <div class="fld"><label>車型與引擎</label><select class="inp" id="f_model"><option value="">請選擇</option>
+    <div class="fld"><label>車型與引擎</label><select class="inp" id="f_model" onchange="syncEclipseStockFitment()"><option value="">請選擇</option>
       ${modelsOf(P).map(m=>{const e=engById(m.eng);
         return `<option value="${m.id}" ${c.modelId===m.id?'selected':''}>${esc(m.name)} · ${e?esc(e.name):''}${m.drive?' · '+m.drive:''}（${m.yr[0]}–${m.yr[1]}）</option>`;}).join('')}
     </select></div>
     <div class="fld"><label>車身型式</label><select class="inp" id="f_body"><option value="">請選擇</option>
       ${bodiesOf(P).map(b=>`<option value="${b.id}" ${c.bodyId===b.id?'selected':''}>${esc(b.code)} ${esc(b.name)}</option>`).join('')}</select></div>
-    <div class="fld"><label>年份</label><input class="inp" id="f_year" type="number" min="${yr[0]}" max="${yr[1]}" value="${c.year||yr[0]+1}"></div>
+    <div class="fld"><label>年份</label><input class="inp" id="f_year" type="number" min="${yr[0]}" max="${yr[1]}" value="${c.year||yr[0]+1}" onchange="syncEclipseStockFitment()"></div>
     <div class="fld"><label>市場版本</label><select class="inp" id="f_mkt">
       ${mkts.map(m=>`<option ${c.mkt===m?'selected':''}>${esc(m)}</option>`).join('')}</select></div>
-    <div class="fld"><label>變速箱</label><select class="inp" id="f_trans"><option value="">請選擇</option>
+    <div class="fld"><label>變速箱</label><select class="inp" id="f_trans" onchange="syncEclipseStockFitment()"><option value="">請選擇</option>
       ${transOf(P).map(t=>`<option value="${esc(t.name)}" ${c.trans===t.name?'selected':''}>${t.type?esc(t.type)+' · ':''}${esc(t.name)}</option>`).join('')}</select></div>`;
 }
 function setCarPlat(p){
@@ -4969,11 +5023,26 @@ function setCarPlat(p){
   c.plat = p; c.modelId=''; c.bodyId=''; c.trans='';
   c.year = p==='dsm2g' ? 1997 : 1996;
   if(p==='dsm2g'){
-    c.wheelW=6;c.wheelET=46;c.tire='205/55R16';
-    Object.assign(c.build,{paint:'ecl-white',wheel:'ecl-oem',aeroKit:'stock',lip:false,skirt:false,diffuser:false,wing:'none',shadow:false});
+    const stock=eclipseStockFitment(c);
+    Object.assign(c,{wheelW:stock.wheelW,wheelET:stock.wheelET,tire:stock.tire});
+    Object.assign(c.build,{paint:'ecl-white',wheel:'ecl-oem',size:stock.size,tireW:stock.tireW,tireAR:stock.tireAR,
+      aeroKit:'stock',lip:false,skirt:false,diffuser:false,wing:'none',shadow:false});
+    window.__stockFitmentDirty=true;
   }else Object.assign(c.build,{paint:'alpine',wheel:'st42',aeroKit:'stock',lip:false,skirt:false,diffuser:false,wing:'none'});
   PLATFORMS.forEach(x=>{ const b=$('#pl_'+x.id); if(b) b.classList.toggle('on', x.id===p); });
   $('#platFields').innerHTML = carPlatFields(c);
+}
+
+function syncEclipseStockFitment(){
+  const c=window.__editCar;if(!c||platOf(c)!=='dsm2g')return;
+  c.modelId=$('#f_model')?.value||'';c.year=+($('#f_year')?.value||1997);
+  const stock=eclipseStockFitment(c);
+  Object.assign(c,{wheelW:stock.wheelW,wheelET:stock.wheelET,tire:stock.tire});
+  Object.assign(c.build,{size:stock.size,tireW:stock.tireW,tireAR:stock.tireAR});
+  if($('#f_ww'))$('#f_ww').value=stock.wheelW;
+  if($('#f_et'))$('#f_et').value=stock.wheelET;
+  if($('#f_tire'))$('#f_tire').value=stock.tire;
+  window.__stockFitmentDirty=true;
 }
 
 function editCar(id){
@@ -4981,6 +5050,7 @@ function editCar(id){
   const c = isNew ? blankCar() : structuredClone(DB.cars.find(x=>x.id===id));
   if(!c) return;
   window.__editCar = c;
+  window.__stockFitmentDirty=false;
   const P = platOf(c);
   modal({title: isNew?'建立車輛':'編輯車輛', wide:true, body:`
     <div class="fld"><label>車輛平台</label>
@@ -5009,7 +5079,7 @@ function editCar(id){
 }
 function saveCar(id, isNew){
   const g = s => $('#'+s)?.value ?? '';
-  const c = isNew ? blankCar() : DB.cars.find(x=>x.id===id);
+  const c = isNew ? structuredClone(window.__editCar||blankCar()) : DB.cars.find(x=>x.id===id);
   if(isNew) c.id = id;
   Object.assign(c, {
     plat: platOf(window.__editCar),
@@ -5018,6 +5088,10 @@ function saveCar(id, isNew){
     vin:g('f_vin').trim().toUpperCase(), km:+g('f_km')||0,
     wheelW:+g('f_ww')||7, wheelET:+g('f_et')||47, tire:g('f_tire')||'205/60R15', notes:g('f_notes'),
   });
+  if(platOf(c)==='dsm2g'&&window.__stockFitmentDirty){
+    const stock=eclipseStockFitment(c);
+    Object.assign(c.build,{size:stock.size,tireW:stock.tireW,tireAR:stock.tireAR});
+  }
   normalizeCarData(c);
   if(isNew){ DB.cars.push(c); DB.cur = c.id; }
   saveDB(); closeModal(); render(); toast(isNew?'已建立車輛':'已儲存');
@@ -5029,6 +5103,14 @@ function saveCar(id, isNew){
    ========================================================================== */
 let AB = false, ABPOS = 50, DPART = null;
 const paintsOf = c => platOf(c)==='dsm2g'?ECL_PAINTS:PAINTS;
+function stockBuildFor(c,paint){
+  const build={...blankCar().build,paint,wheel:platOf(c)==='dsm2g'?'ecl-oem':'st42'};
+  if(platOf(c)==='dsm2g'){
+    const stock=eclipseStockFitment(c);
+    Object.assign(build,{size:stock.size,tireW:stock.tireW,tireAR:stock.tireAR});
+  }
+  return build;
+}
 
 const DPARTS = [
   {id:'paint',  name:'車身顏色', ic:'paint',  val:b=>car()?.bodyId==='sedan'?'來源模型原色':paintsOf(car()).find(p=>p.id===b.paint)?.name},
@@ -5049,7 +5131,7 @@ function pgDesign(){
     ${esc(platName(platOf(c)))} 目前有：${bodiesOf(platOf(c)).filter(x=>hasCar3D(x.id)).map(x=>esc(x.name)).join('、')}</span></p>
     <button class="btn pri" onclick="editCar('${c.id}')">${c.bodyId?'編輯車輛':'去選車身型式'}</button></div></div>`;
   const b = c.build;
-  const stock = {...blankCar().build,paint:b.paint,wheel:platOf(c)==='dsm2g'?'ecl-oem':'st42'};
+  const stock = stockBuildFor(c,b.paint);
   const wc = wheelCheck(c, {size:b.size, width:estWidth(b), et:estET(b), tireW:b.tireW, tireAR:b.tireAR});
 
   return `
@@ -5138,8 +5220,9 @@ function partPanel(b, c){
       ${sliderInput('扁平比','%','tireAR',25,70,5,b.tireAR)}
       <div class="kv"><span>規格</span><b>${b.tireW}/${b.tireAR} R${b.size}</b></div>
       <div class="kv"><span>外徑</span><b>${od.toFixed(0)} mm</b></div>
-      <div class="note b" style="margin-top:var(--s2)">E36 最佳解通常是 <b>245/40R17</b>，外徑僅 +0.13%、速度表幾乎零誤差。
-        避開 235/40R18（+2.90%，超出台灣 2% 門檻）。</div></div>`;
+      <div class="note b" style="margin-top:var(--s2)">${platOf(c)==='dsm2g'
+        ?'1997–1999 GSX 原廠為 <b>17×6.5JJ、ET46、215/50R17 90V</b>。變更尺寸時，外徑仍須控制在原廠值 ±2% 內。'
+        :'E36 最佳解通常是 <b>245/40R17</b>，外徑僅 +0.13%、速度表幾乎零誤差。避開 235/40R18（+2.90%，超出台灣 2% 門檻）。'}</div></div>`;
   }
   if(DPART==='drop'){
     const products=suspensionProductsOf(c),eclipse=platOf(c)==='dsm2g';
@@ -5213,8 +5296,14 @@ function chk(k, label, warn){
     <span>${esc(label)}</span>${warn?`<span class="rt" style="color:var(--red)">${esc(warn)}</span>`:''}</label>`;
 }
 function countAero(b){ return ['lip','skirt','diffuser','hood','wide'].filter(k=>b[k]).length + (b.wing!=='none'?1:0) + (b.tips&&b.tips!=='single'&&b.tips!=='none'?1:0); }
-function estWidth(b){ return Math.round((b.tireW/25.4 - 1.6)*2)/2; }
+function estWidth(b){
+  const c=car();
+  if(c&&platOf(c)==='dsm2g'&&b.wheel==='ecl-oem')return eclipseStockFitment(c).wheelW;
+  return Math.round((b.tireW/25.4 - 1.6)*2)/2;
+}
 function estET(b){
+  const c=car();
+  if(c&&platOf(c)==='dsm2g'&&b.wheel==='ecl-oem')return eclipseStockFitment(c).wheelET;
   const w = estWidth(b);
   if(b.size<=15) return 47;
   if(w<=7.5) return 45; if(w<=8) return 42; if(w<=8.5) return 40; if(w<=9) return 35; return 30;
@@ -5300,8 +5389,7 @@ function applyAlignmentPreset(id){
 function resetBuild(){
   const c = car(); if(!c) return;
   const keep = c.build.paint;
-  c.build = blankCar().build;c.build.paint=keep;
-  if(platOf(c)==='dsm2g')c.build.wheel='ecl-oem';
+  c.build = stockBuildFor(c,keep);
   saveDB(); render(); toast('已回到原廠設定');
 }
 

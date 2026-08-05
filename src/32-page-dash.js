@@ -365,16 +365,16 @@ function carPlatFields(c){
     : ['EU 歐規','US 北美','JP 日規','TW 台灣總代理','平行輸入'];
   return `
     <div class="fld"><label>車輛暱稱</label><input class="inp" id="f_name" value="${esc(c.name)}" placeholder="留空會自動用車型組合"></div>
-    <div class="fld"><label>車型與引擎</label><select class="inp" id="f_model"><option value="">請選擇</option>
+    <div class="fld"><label>車型與引擎</label><select class="inp" id="f_model" onchange="syncEclipseStockFitment()"><option value="">請選擇</option>
       ${modelsOf(P).map(m=>{const e=engById(m.eng);
         return `<option value="${m.id}" ${c.modelId===m.id?'selected':''}>${esc(m.name)} · ${e?esc(e.name):''}${m.drive?' · '+m.drive:''}（${m.yr[0]}–${m.yr[1]}）</option>`;}).join('')}
     </select></div>
     <div class="fld"><label>車身型式</label><select class="inp" id="f_body"><option value="">請選擇</option>
       ${bodiesOf(P).map(b=>`<option value="${b.id}" ${c.bodyId===b.id?'selected':''}>${esc(b.code)} ${esc(b.name)}</option>`).join('')}</select></div>
-    <div class="fld"><label>年份</label><input class="inp" id="f_year" type="number" min="${yr[0]}" max="${yr[1]}" value="${c.year||yr[0]+1}"></div>
+    <div class="fld"><label>年份</label><input class="inp" id="f_year" type="number" min="${yr[0]}" max="${yr[1]}" value="${c.year||yr[0]+1}" onchange="syncEclipseStockFitment()"></div>
     <div class="fld"><label>市場版本</label><select class="inp" id="f_mkt">
       ${mkts.map(m=>`<option ${c.mkt===m?'selected':''}>${esc(m)}</option>`).join('')}</select></div>
-    <div class="fld"><label>變速箱</label><select class="inp" id="f_trans"><option value="">請選擇</option>
+    <div class="fld"><label>變速箱</label><select class="inp" id="f_trans" onchange="syncEclipseStockFitment()"><option value="">請選擇</option>
       ${transOf(P).map(t=>`<option value="${esc(t.name)}" ${c.trans===t.name?'selected':''}>${t.type?esc(t.type)+' · ':''}${esc(t.name)}</option>`).join('')}</select></div>`;
 }
 function setCarPlat(p){
@@ -382,11 +382,26 @@ function setCarPlat(p){
   c.plat = p; c.modelId=''; c.bodyId=''; c.trans='';
   c.year = p==='dsm2g' ? 1997 : 1996;
   if(p==='dsm2g'){
-    c.wheelW=6;c.wheelET=46;c.tire='205/55R16';
-    Object.assign(c.build,{paint:'ecl-white',wheel:'ecl-oem',aeroKit:'stock',lip:false,skirt:false,diffuser:false,wing:'none',shadow:false});
+    const stock=eclipseStockFitment(c);
+    Object.assign(c,{wheelW:stock.wheelW,wheelET:stock.wheelET,tire:stock.tire});
+    Object.assign(c.build,{paint:'ecl-white',wheel:'ecl-oem',size:stock.size,tireW:stock.tireW,tireAR:stock.tireAR,
+      aeroKit:'stock',lip:false,skirt:false,diffuser:false,wing:'none',shadow:false});
+    window.__stockFitmentDirty=true;
   }else Object.assign(c.build,{paint:'alpine',wheel:'st42',aeroKit:'stock',lip:false,skirt:false,diffuser:false,wing:'none'});
   PLATFORMS.forEach(x=>{ const b=$('#pl_'+x.id); if(b) b.classList.toggle('on', x.id===p); });
   $('#platFields').innerHTML = carPlatFields(c);
+}
+
+function syncEclipseStockFitment(){
+  const c=window.__editCar;if(!c||platOf(c)!=='dsm2g')return;
+  c.modelId=$('#f_model')?.value||'';c.year=+($('#f_year')?.value||1997);
+  const stock=eclipseStockFitment(c);
+  Object.assign(c,{wheelW:stock.wheelW,wheelET:stock.wheelET,tire:stock.tire});
+  Object.assign(c.build,{size:stock.size,tireW:stock.tireW,tireAR:stock.tireAR});
+  if($('#f_ww'))$('#f_ww').value=stock.wheelW;
+  if($('#f_et'))$('#f_et').value=stock.wheelET;
+  if($('#f_tire'))$('#f_tire').value=stock.tire;
+  window.__stockFitmentDirty=true;
 }
 
 function editCar(id){
@@ -394,6 +409,7 @@ function editCar(id){
   const c = isNew ? blankCar() : structuredClone(DB.cars.find(x=>x.id===id));
   if(!c) return;
   window.__editCar = c;
+  window.__stockFitmentDirty=false;
   const P = platOf(c);
   modal({title: isNew?'建立車輛':'編輯車輛', wide:true, body:`
     <div class="fld"><label>車輛平台</label>
@@ -422,7 +438,7 @@ function editCar(id){
 }
 function saveCar(id, isNew){
   const g = s => $('#'+s)?.value ?? '';
-  const c = isNew ? blankCar() : DB.cars.find(x=>x.id===id);
+  const c = isNew ? structuredClone(window.__editCar||blankCar()) : DB.cars.find(x=>x.id===id);
   if(isNew) c.id = id;
   Object.assign(c, {
     plat: platOf(window.__editCar),
@@ -431,6 +447,10 @@ function saveCar(id, isNew){
     vin:g('f_vin').trim().toUpperCase(), km:+g('f_km')||0,
     wheelW:+g('f_ww')||7, wheelET:+g('f_et')||47, tire:g('f_tire')||'205/60R15', notes:g('f_notes'),
   });
+  if(platOf(c)==='dsm2g'&&window.__stockFitmentDirty){
+    const stock=eclipseStockFitment(c);
+    Object.assign(c.build,{size:stock.size,tireW:stock.tireW,tireAR:stock.tireAR});
+  }
   normalizeCarData(c);
   if(isNew){ DB.cars.push(c); DB.cur = c.id; }
   saveDB(); closeModal(); render(); toast(isNew?'已建立車輛':'已儲存');

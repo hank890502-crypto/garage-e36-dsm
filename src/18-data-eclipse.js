@@ -68,14 +68,27 @@ const ECL_TRANS = [
 const ECL_HUB = {
   pcd:'5x114.3', bore:67.1, bolt:'M12×1.5', seat:'錐座', boltLen:0,
   torque:'120–140 N-m（87–101 ft-lb）', et:46,
-  note:'手冊 Wheels 章節記載：原廠鋁圈與鋼圈的 P.C.D. 一律 114.3 mm、offset 一律 46 mm。低階 14×5.5JJ、高階 16×6JJ。中心孔 67.1 mm 手冊未載明，為社群通用數值。',
+  note:'手冊 Wheels 章節記載：原廠鋁圈與鋼圈的 P.C.D. 一律 114.3 mm、offset 一律 46 mm。1997–1999 GSX 使用 17×6.5JJ；中心孔 67.1 mm 手冊未載明，為社群通用數值。',
 };
 const ECL_OEM_WHEEL = [
   {trim:'RS / GS 基本', wheel:'14 × 5.5JJ', et:46, tire:'P185/70R14 87S'},
   {trim:'中階',         wheel:'14 × 5.5JJ', et:46, tire:'P195/70R14 90H'},
-  {trim:'GS-T / GSX',   wheel:'16 × 6JJ',   et:46, tire:'P205/55R16 89H'},
+  {trim:'GS / GS-T',    wheel:'16 × 6JJ',   et:46, tire:'P205/55R16 89H'},
+  {trim:'GSX（1995–1996）', wheel:'16 × 6JJ', et:46, tire:'P205/55R16 或 P215/55R16'},
+  {trim:'GSX（1997–1999）', wheel:'17 × 6.5JJ', et:46, tire:'P215/50R17 90V'},
   {trim:'備胎（全車系）', wheel:'15 × 4T / 16 × 4T', et:46, tire:'T125/70D15'},
 ];
+
+function eclipseStockFitment(c={}){
+  const id=c.modelId||'',year=+c.year||1997,manual=/手排|manual|w5m33/i.test(c.trans||'');
+  if(id==='ecl-gsx'&&year>=1997)
+    return {wheelW:6.5,wheelET:46,tire:'215/50R17',size:17,tireW:215,tireAR:50};
+  if(id==='ecl-gsx')
+    return {wheelW:6,wheelET:46,tire:manual?'215/55R16':'205/55R16',size:16,tireW:manual?215:205,tireAR:55};
+  if(id==='ecl-rs')
+    return {wheelW:5.5,wheelET:46,tire:'185/70R14',size:14,tireW:185,tireAR:70};
+  return {wheelW:6,wheelET:46,tire:'205/55R16',size:16,tireW:205,tireAR:55};
+}
 
 /* ---------------- 原廠數據（全部來自手冊，標明章節） ---------------- */
 const ECL_SVC = [
@@ -263,7 +276,8 @@ const ALL_MAINT = () => [...MAINT_ITEMS, ...ECL_MAINT];
 
 /* ---------------- Eclipse 輪圈款式 ---------------- */
 const ECL_WHEEL_STYLES = [
-  {id:'ecl-oem',brand:'Mitsubishi',name:'2G GS-T / GSX 原廠六輻',cat:'六輻鑄造',spokes:6,innerW:.052,outerW:.086,hubScale:1.08},
+  {id:'ecl-oem',brand:'Mitsubishi',name:'GSX 原廠十輻',cat:'1997–1999 · 17×6.5J',spokes:10,
+   innerW:.025,outerW:.021,hubScale:.82,cast:true,lipScale:.020},
   {id:'ecl-mesh6',brand:'Mitsubishi',name:'原廠六雙輻',cat:'六雙輻鑄造',spokes:12,pair:true,thin:true,pairSpread:.027,innerW:.026,outerW:.038},
   {id:'ecl-gold',brand:'Rally',name:'六輻競技款',cat:'六輻',spokes:6,innerW:.045,outerW:.078,dish:true,concave:true},
 ];
