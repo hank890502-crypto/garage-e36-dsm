@@ -15,8 +15,9 @@ if(!DB.cars.length){
     notes:'這是自動建立的示範車，用來展示各頁面的樣子。可以直接編輯成自己的車，或刪掉後重新建立。',
   });
   demo.build = {...demo.build, paint:'estoril', wheel:'st5', finish:'satblk', size:17,
-                tireW:245, tireAR:40, drop:35, caliper:'red', tint:45,
-                lip:true, skirt:true, wing:'duck', tips:'dual', shadow:true};
+                tireW:245, tireAR:40, suspension:'b14', drop:35, dropF:35, dropR:35,
+                brakeKit:'brembo', caliper:'red', tintProduct:'3m-ma40', tint:60,
+                aeroKit:'mtech', lip:true, skirt:true, wing:'none', tips:'dual', shadow:true};
   demo.parts = ['c-cooling'];
   demo.logs = [
     {id:uid(), date:'2026-02-14', km:182000, title:'定期保養：更換機油與機油濾芯、空氣濾芯',

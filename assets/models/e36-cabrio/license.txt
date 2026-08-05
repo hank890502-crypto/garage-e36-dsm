@@ -1,0 +1,11 @@
+Model Information:
+* title:	BMW E36 Cabrio 1990-1999
+* source:	https://sketchfab.com/3d-models/bmw-e36-cabrio-1990-1999-08475fd3c85b4337ad052a94ea045139
+* author:	Mercedesiarz_2025 (https://sketchfab.com/szymonpasterczyk)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "BMW E36 Cabrio 1990-1999" (https://sketchfab.com/3d-models/bmw-e36-cabrio-1990-1999-08475fd3c85b4337ad052a94ea045139) by Mercedesiarz_2025 (https://sketchfab.com/szymonpasterczyk) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

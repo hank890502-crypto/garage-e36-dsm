@@ -5,7 +5,18 @@
 const CAR3D_BODY_IDS = new Set(['coupe','sedan','touring','compact','cabrio','coupe2g','spyder2g']);
 const CAR3D_INSTANCES = [];
 const CAR3D_DEFAULT_VIEW = {offset:[-4.95,2.15,4.35], target:[0,.65,0]};
-const CAR3D_MODEL_URLS = {e36:'./assets/models/e36/scene.gltf',eclipse:'./assets/models/eclipse/scene.gltf'};
+const CAR3D_MODEL_URLS = {
+  coupe:'./assets/models/e36-coupe/model.glb',
+  sedan:'./assets/models/e36-sedan/model.glb',
+  compact:'./assets/models/e36-compact/model.glb',
+  touring:'./assets/models/e36-touring/model.glb',
+  cabrio:'./assets/models/e36-cabrio/model.glb',
+  coupe2g:'./assets/models/eclipse/scene.gltf',
+  spyder2g:'./assets/models/eclipse/scene.gltf',
+};
+const CAR3D_SCENERY_NODES={coupe:['Object_18']};
+const CAR3D_WHEEL_NODES={coupe:['Object_6','Object_7','Object_8']};
+const CAR3D_REVERSED_BODIES=new Set(['compact']);
 const CAR3D_MODEL_CACHE = new Map();
 let CAR3D_VIEW = structuredClone(CAR3D_DEFAULT_VIEW);
 let CAR3D_SYNCING = false;
@@ -239,14 +250,16 @@ function addBodyTrim(THREE, body, spec, paint){
 }
 
 function wheelPreset(id){
-  if(id==='steel') return {spokes:12,steel:true};
-  if(id==='st66') return {spokes:5,wide:true};
-  if(id==='dish') return {spokes:8,dish:true};
-  if(id==='mesh') return {spokes:14,thin:true};
-  if(id==='st5'||id==='st39') return {spokes:10,thin:true};
-  if(id==='ecl-oem'||id==='ecl-gold') return {spokes:6,wide:true};
-  if(id==='ecl-mesh6') return {spokes:12,thin:true};
+  const exact=[...WHEEL_STYLES,...ECL_WHEEL_STYLES].find(x=>x.id===id);
+  if(exact) return exact;
   return {spokes:10,wide:true};
+}
+
+function taperedSpokeGeometry(THREE, inner, outer, innerW, outerW, depth){
+  const z=depth/2,v=[-innerW/2,inner,-z, innerW/2,inner,-z, outerW/2,outer,-z,-outerW/2,outer,-z,
+                     -innerW/2,inner,z,  innerW/2,inner,z,  outerW/2,outer,z, -outerW/2,outer,z];
+  const i=[0,1,2,0,2,3,4,6,5,4,7,6,0,4,5,0,5,1,1,5,6,1,6,2,2,6,7,2,7,3,3,7,4,3,4,0];
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(v,3));g.setIndex(i);g.computeVertexNormals();return g;
 }
 
 function makeWheel(THREE, build, tireR, tireW, side){
@@ -259,20 +272,25 @@ function makeWheel(THREE, build, tireR, tireW, side){
   const fin=WHEEL_FINISHES.find(x=>x.id===build.finish)||WHEEL_FINISHES[0];
   const rimMat=new THREE.MeshStandardMaterial({color:fin.face,metalness:preset.steel?.55:.9,roughness:preset.steel?.38:.16});
   const lipMat=new THREE.MeshStandardMaterial({color:fin.lip||fin.face,metalness:.96,roughness:.1});
+  const brake=BRAKE_PRODUCTS.find(x=>x.id===build.brakeKit)||BRAKE_PRODUCTS[0];
   const discMat=mat(THREE,0x737b7d,{metalness:.78,roughness:.31});
-  const cal=CALIPER_COLORS.find(x=>x.id===build.caliper)||CALIPER_COLORS[0];
+  const cal=CALIPER_COLORS.find(x=>x.id===(brake.color||build.caliper))||CALIPER_COLORS[0];
   const calMat=mat(THREE,cal.hex,{metalness:.25,roughness:.3});
-  const brakeZ=side*tireW*.18;
-  mesh(THREE,g,new THREE.CylinderGeometry(rimR*.68,rimR*.68,.035,48),discMat,[0,0,brakeZ],[Math.PI/2,0,0]);
+  const brakeZ=side*tireW*.18,discScale=Math.min(.84,.56+(brake.disc-260)/480);
+  mesh(THREE,g,new THREE.CylinderGeometry(rimR*discScale,rimR*discScale,.035,48),discMat,[0,0,brakeZ],[Math.PI/2,0,0]);
   mesh(THREE,g,new THREE.CylinderGeometry(rimR*.27,rimR*.27,.041,32),mat(THREE,0x3b4040,{metalness:.75,roughness:.3}),[0,0,brakeZ+side*.004],[Math.PI/2,0,0]);
-  mesh(THREE,g,new THREE.BoxGeometry(rimR*.19,rimR*.43,.075),calMat,[-rimR*.52,.02,brakeZ+side*.035],[0,0,-.18]);
+  const caliper=mesh(THREE,g,new THREE.CapsuleGeometry(rimR*.105,rimR*(brake.pistons>1?.34:.22),6,14),calMat,
+    [-rimR*discScale*.80,.02,brakeZ+side*.035],[0,0,-.18]);caliper.scale.z=brake.pistons>1?.68:.48;
   mesh(THREE,g,new THREE.CylinderGeometry(rimR*.96,rimR*.96,tireW*.66,48,1,true),rimMat,[0,0,0],[Math.PI/2,0,0]);
-  const faceZ=side*(tireW*.49+.008), spokeW=preset.thin?.028:preset.wide?.058:.043;
-  for(let i=0;i<preset.spokes;i++){
-    const a=i/preset.spokes*Math.PI*2;
-    const spoke=mesh(THREE,g,new THREE.BoxGeometry(rimR*.71,spokeW,.028),rimMat,
-      [Math.cos(a)*rimR*.40,Math.sin(a)*rimR*.40,faceZ-side*(preset.dish?.035:0)],[0,0,a]);
-    if(preset.dish) spoke.rotation.y=side*.07*Math.cos(a);
+  const faceZ=side*(tireW*.49+.008),n=preset.pair?Math.max(3,preset.spokes/2):preset.spokes;
+  const spokeGeo=taperedSpokeGeometry(THREE,rimR*.17,rimR*.82,preset.thin?.028:.040,preset.wide?.075:.055,.030);
+  for(let i=0;i<n;i++){
+    const base=i/n*Math.PI*2, offsets=preset.pair?[-.055,.055]:preset.mesh?[-.035,.035]:[0];
+    offsets.forEach((off,j)=>{
+      const spoke=mesh(THREE,g,spokeGeo,rimMat,[0,0,faceZ-side*(preset.dish?.035:0)],[0,0,base+off]);
+      if(preset.mesh) spoke.rotation.z+=j?-.055:.055;
+      if(preset.concave) spoke.position.z-=side*.035;
+    });
   }
   mesh(THREE,g,new THREE.CylinderGeometry(rimR*.16,rimR*.16,.045,32),rimMat,[0,0,faceZ],[Math.PI/2,0,0]);
   for(let i=0;i<5;i++){
@@ -286,9 +304,13 @@ function makeWheel(THREE, build, tireR, tireW, side){
 
 function addWheels(THREE, root, spec, build, tireR){
   const tireW=Math.max(.17,Math.min(.31,(+build.tireW||225)/1000));
-  const track=spec.width/2-tireW*.52;
-  [-spec.wheelbase/2,spec.wheelbase/2].forEach(x=>[-1,1].forEach(side=>{
-    const w=makeWheel(THREE,build,tireR,tireW,side);w.position.set(x,tireR,side*track);root.add(w);
+  [-spec.wheelbase/2,spec.wheelbase/2].forEach((x,axle)=>[-1,1].forEach(side=>{
+    const front=axle===0,track=spec.width/2-tireW*.52+(+(front?build.trackF:build.trackR)||0)/2000;
+    const camber=+(front?build.camberF:build.camberR)||0,toe=+(front?build.toeF:build.toeR)||0;
+    const w=makeWheel(THREE,build,tireR,tireW,side);w.position.set(x,tireR,side*track);
+    w.rotation.order='YXZ';w.rotation.x=side*THREE.MathUtils.degToRad(camber);
+    w.rotation.y=side*THREE.MathUtils.degToRad(toe);
+    Object.assign(w.userData,{carWheel:true,front,side,baseTrack:spec.width/2-tireW*.52});root.add(w);
   }));
 }
 
@@ -496,17 +518,20 @@ function buildProceduralCarModel(THREE, spec, build){
   addWindows(THREE,body,spec,build,cabinWidth);addPanelLines(THREE,body,spec);addBodyTrim(THREE,body,spec,paint);
   addWheelArches(THREE,body,spec,build,paint,tireR);addLightingParts(THREE,body,spec);
   addMirrors(THREE,body,spec,paint);addAero(THREE,body,spec,build,paint);
-  body.position.y=-Math.max(0,+build.drop||0)/1000;root.add(body);
+  const dropF=Math.max(0,+build.dropF||+build.drop||0),dropR=Math.max(0,+build.dropR||+build.drop||0);
+  body.position.y=-(dropF+dropR)/2000;body.rotation.z=(dropF-dropR)/1000/Math.max(1,spec.wheelbase);
+  Object.assign(body.userData,{vehicleBody:true,baseY:0});root.add(body);
   addWheels(THREE,root,spec,build,tireR);addExhaust(THREE,root,spec,build);
   root.rotation.y=0;
   return root;
 }
 
-function loadCar3DSource(GLTFLoader, spec){
-  const key=spec.eclipse?'eclipse':'e36';
+function loadCar3DSource(GLTFLoader, MeshoptDecoder, spec){
+  const key=spec.id;
   if(!CAR3D_MODEL_CACHE.has(key)){
     CAR3D_MODEL_CACHE.set(key,new Promise((resolve,reject)=>{
-      new GLTFLoader().load(CAR3D_MODEL_URLS[key],gltf=>resolve(gltf.scene),undefined,reject);
+      const loader=new GLTFLoader();if(MeshoptDecoder) loader.setMeshoptDecoder(MeshoptDecoder);
+      loader.load(CAR3D_MODEL_URLS[key],gltf=>resolve(gltf.scene),undefined,reject);
     }));
   }
   return CAR3D_MODEL_CACHE.get(key);
@@ -517,26 +542,54 @@ function cloneCar3DSource(source){
   clone.traverse(o=>{
     if(!o.isMesh) return;
     o.geometry=o.geometry.clone();
-    o.material=Array.isArray(o.material)?o.material.map(m=>m.clone()):o.material.clone();
+    if(o.material) o.material=Array.isArray(o.material)?o.material.map(m=>m.clone()):o.material.clone();
   });
   return clone;
 }
 
+function convertEclipseToSpyder(model){
+  ['eclipse_generic_leather_white01-material','eclipse_body-material','eclipse_black-material'].forEach(name=>{
+    const g=model.getObjectByName(name)?.geometry,pos=g?.attributes?.position;if(!pos)return;
+    const source=g.index?Array.from(g.index.array):Array.from({length:pos.count},(_,i)=>i),kept=[];
+    for(let i=0;i<source.length;i+=3){
+      const a=source[i],b=source[i+1],c=source[i+2];
+      const height=(pos.getZ(a)+pos.getZ(b)+pos.getZ(c))/3;
+      const length=(pos.getY(a)+pos.getY(b)+pos.getY(c))/3;
+      if(!(height>.92&&length>-.78&&length<1.68))kept.push(a,b,c);
+    }
+    g.setIndex(kept);g.computeBoundingBox();g.computeBoundingSphere();
+  });
+  ['eclipse_doorglass_L','eclipse_doorglass_R','eclipse_sideglass_L','eclipse_sideglass_R','eclipse_backlight','eclipse_steer']
+    .forEach(name=>{const x=model.getObjectByName(name);if(x)x.visible=false;});
+}
+
+function importedCarBox(THREE,model){
+  const box=new THREE.Box3(),partBox=new THREE.Box3();let found=false;
+  model.updateMatrixWorld(true);
+  model.traverse(o=>{
+    if(!o.isMesh||!o.visible)return;
+    partBox.setFromObject(o);if(partBox.isEmpty())return;
+    box.union(partBox);found=true;
+  });
+  return found?box:new THREE.Box3().setFromObject(model);
+}
+
 function normalizeImportedCar(THREE, model, spec){
   model.updateMatrixWorld(true);
-  let box=new THREE.Box3().setFromObject(model),size=box.getSize(new THREE.Vector3());
-  if(size.z>size.x){model.rotation.y=-Math.PI/2;model.updateMatrixWorld(true);box.setFromObject(model);size=box.getSize(size);}
+  let box=importedCarBox(THREE,model),size=box.getSize(new THREE.Vector3());
+  if(size.z>size.x){model.rotation.y=-Math.PI/2;model.updateMatrixWorld(true);box=importedCarBox(THREE,model);size=box.getSize(size);}
   const frontNode=model.getObjectByName(spec.eclipse?'eclipse_bumper_F':'heads');
   if(frontNode){
     const carCenter=box.getCenter(new THREE.Vector3()),frontCenter=new THREE.Box3().setFromObject(frontNode).getCenter(new THREE.Vector3());
-    if(frontCenter.x>carCenter.x){model.rotateY(Math.PI);model.updateMatrixWorld(true);box.setFromObject(model);size=box.getSize(size);}
+    if(frontCenter.x>carCenter.x){model.rotateY(Math.PI);model.updateMatrixWorld(true);box=importedCarBox(THREE,model);size=box.getSize(size);}
   }
   const scale=spec.length/Math.max(.01,size.x);model.scale.multiplyScalar(scale);model.updateMatrixWorld(true);
-  box.setFromObject(model);
+  box=importedCarBox(THREE,model);
   const center=box.getCenter(new THREE.Vector3());
   model.position.x-=center.x;model.position.z-=center.z;model.updateMatrixWorld(true);
-  const floorNode=spec.eclipse?model.getObjectByName('eclipse_body-material'):model;
-  const floorBox=new THREE.Box3().setFromObject(floorNode||model);
+  if(CAR3D_REVERSED_BODIES.has(spec.id)){model.rotateY(Math.PI);model.updateMatrixWorld(true);}
+  const floorNode=spec.eclipse?model.getObjectByName('eclipse_body-material'):null;
+  const floorBox=floorNode?new THREE.Box3().setFromObject(floorNode):importedCarBox(THREE,model);
   model.position.y-=floorBox.min.y;
   model.updateMatrixWorld(true);
 }
@@ -550,8 +603,11 @@ function styleImportedCar(THREE, model, spec, build){
     const wasArray=Array.isArray(o.material),materials=wasArray?o.material:[o.material];
     const styled=materials.map(m=>{
       const name=(m.name||'').toLowerCase();
-      if(name.includes('carpaint_flakes_blue')||name==='eclipse_body'){
+      if(/car ?paint|carpaint|bmwe36_paint/.test(name)||name.includes('carpaint_flakes_blue')||name==='eclipse_body'){
         const p=paint.clone();p.name=m.name;return p;
+      }
+      if(spec.id==='sedan'&&name==='material_0'){
+        const r=m.clone();r.color.set(paintDef.hex);r.metalness=.25;r.roughness=.34;return r;
       }
       if(name.includes('carpaint_flakes_silver')||name.includes('eclipse95_wheel')){
         const r=m.clone();r.color.set(fin.face);r.metalness=.82;r.roughness=.18;return r;
@@ -581,15 +637,32 @@ function setImportedVisibility(model, spec, build){
     set('eclipse_bumperkit_F',kit);set('eclipse_bumperkit_R',kit);
     set('eclipse_spoiler',build.wing==='duck');set('eclipse_spoiler_2',build.wing==='gt');
   }else{
-    ['rim','rim001','rim002','rim003','Cylinder002','Cylinder004','Cylinder005','Cylinder006','e36_exhaust_1'].forEach(n=>set(n,false));
+    model.traverse(o=>{
+      const name=(o.name||'').toLowerCase(),mats=o.material?(Array.isArray(o.material)?o.material:[o.material]):[];
+      const namedWheel=/^(fl|fr|rl|rr)_(tire|rim)$/.test(name)||/^rim(\.\d+)?$|^tire(\.\d+)?$/.test(name);
+      const wheelMaterialIndexes=mats.reduce((indexes,m,i)=>{
+        if(/(^|[^a-z])(tire|tyre|rim|wheel)([^a-z]|$)/.test((m.name||'').toLowerCase())) indexes.push(i);
+        return indexes;
+      },[]);
+      if(namedWheel||(mats.length===1&&wheelMaterialIndexes.length)) o.visible=false;
+      else if(wheelMaterialIndexes.length&&o.geometry?.groups?.length){
+        const hidden=new Set(wheelMaterialIndexes);
+        o.geometry.groups=o.geometry.groups.filter(group=>!hidden.has(group.materialIndex));
+      }
+    });
+    (CAR3D_WHEEL_NODES[spec.id]||[]).forEach(name=>set(name,false));
   }
 }
 
-async function buildImportedCarModel(THREE, GLTFLoader, spec, build){
-  const source=await loadCar3DSource(GLTFLoader,spec),model=cloneCar3DSource(source),root=new THREE.Group();
+async function buildImportedCarModel(THREE, GLTFLoader, MeshoptDecoder, spec, build){
+  const source=await loadCar3DSource(GLTFLoader,MeshoptDecoder,spec),model=cloneCar3DSource(source),root=new THREE.Group();
+  if(spec.id==='spyder2g')convertEclipseToSpyder(model);
+  (CAR3D_SCENERY_NODES[spec.id]||[]).forEach(name=>{const x=model.getObjectByName(name);if(x)x.visible=false;});
   normalizeImportedCar(THREE,model,spec);
   const paint=styleImportedCar(THREE,model,spec,build);setImportedVisibility(model,spec,build);
-  model.position.y-=Math.max(0,+build.drop||0)/1000;root.add(model);
+  const dropF=Math.max(0,+build.dropF||+build.drop||0),dropR=Math.max(0,+build.dropR||+build.drop||0);
+  const baseY=model.position.y;model.position.y-=(dropF+dropR)/2000;model.rotation.z=(dropF-dropR)/1000/Math.max(1,spec.wheelbase);
+  Object.assign(model.userData,{vehicleBody:true,baseY});root.add(model);
   const tireR=car3DTireRadius(build),wheelBuild={...build,tireW:Math.min(+build.tireW||225,spec.eclipse?225:235)};
   addWheels(THREE,root,spec,wheelBuild,tireR);addExhaust(THREE,root,spec,build);
   if(spec.eclipse){
@@ -598,7 +671,7 @@ async function buildImportedCarModel(THREE, GLTFLoader, spec, build){
   return root;
 }
 
-async function createScene(root, config, THREE, OrbitControls, GLTFLoader){
+async function createScene(root, config, THREE, OrbitControls, GLTFLoader, MeshoptDecoder){
   const spec=bodySpec(config.bodyId), dark=document.documentElement.dataset.theme==='dark';
   const scene=new THREE.Scene();scene.background=new THREE.Color(dark?0x101511:0xdfe4de);scene.fog=new THREE.Fog(scene.background,8,16);
   const camera=new THREE.PerspectiveCamera(31,1,.1,50);
@@ -619,9 +692,9 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader){
   floor.rotation.x=-Math.PI/2;floor.position.y=.005;floor.receiveShadow=true;scene.add(floor);
   const grid=new THREE.GridHelper(12,24,dark?0x287b86:0x6d9ca1,dark?0x263a37:0xa7b9b5);
   grid.material.transparent=true;grid.material.opacity=dark?.34:.42;scene.add(grid);
-  const hasLicensedMesh=spec.id==='coupe'||spec.id==='coupe2g';
+  const hasLicensedMesh=!!CAR3D_MODEL_URLS[spec.id];
   let car;
-  try{car=hasLicensedMesh?await buildImportedCarModel(THREE,GLTFLoader,spec,config.build):buildProceduralCarModel(THREE,spec,config.build);}
+  try{car=hasLicensedMesh?await buildImportedCarModel(THREE,GLTFLoader,MeshoptDecoder,spec,config.build):buildProceduralCarModel(THREE,spec,config.build);}
   catch(err){console.warn('[car3d-model-fallback]',err);car=buildProceduralCarModel(THREE,spec,config.build);}
   if(!root.isConnected){
     car.traverse(o=>{o.geometry?.dispose?.();if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose?.());});
@@ -636,7 +709,7 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader){
     controls.minDistance=4.4;controls.maxDistance=9.5;controls.minPolarAngle=.72;controls.maxPolarAngle=1.48;
   }else camera.lookAt(...CAR3D_VIEW.target);
 
-  const instance={root,scene,camera,renderer,controls,spec,dead:false,observer:null};CAR3D_INSTANCES.push(instance);
+  const instance={root,scene,camera,renderer,controls,spec,car,dead:false,observer:null};CAR3D_INSTANCES.push(instance);
   if(controls){
     controls.addEventListener('change',()=>syncCar3DView(instance));controls.update();
   }
@@ -675,11 +748,28 @@ function resetCar3D(event){
   CAR3D_SYNCING=false;
 }
 
+function updateCar3DBuild(build){
+  CAR3D_READY.then(({THREE})=>CAR3D_INSTANCES.forEach(x=>{
+    if(x.dead||!x.car)return;
+    const dropF=Math.max(0,+build.dropF||+build.drop||0),dropR=Math.max(0,+build.dropR||+build.drop||0);
+    x.car.traverse(o=>{
+      if(o.userData.vehicleBody){
+        o.position.y=(o.userData.baseY||0)-(dropF+dropR)/2000;
+        o.rotation.z=(dropF-dropR)/1000/Math.max(1,x.spec.wheelbase);
+      }
+      if(!o.userData.carWheel)return;
+      const {front,side,baseTrack}=o.userData,camber=+(front?build.camberF:build.camberR)||0,toe=+(front?build.toeF:build.toeR)||0;
+      o.position.z=side*(baseTrack+(+(front?build.trackF:build.trackR)||0)/2000);
+      o.rotation.x=side*THREE.MathUtils.degToRad(camber);o.rotation.y=side*THREE.MathUtils.degToRad(toe);
+    });
+  }));
+}
+
 function afterCarScenes(){
   const roots=$$('.car3d:not(.ready)');if(!roots.length)return;
-  CAR3D_READY.then(({THREE,OrbitControls,GLTFLoader})=>roots.forEach(root=>{
+  CAR3D_READY.then(({THREE,OrbitControls,GLTFLoader,MeshoptDecoder})=>roots.forEach(root=>{
     if(!root.isConnected||root.classList.contains('ready')) return;
-    createScene(root,JSON.parse(decodeURIComponent(root.dataset.car3d)),THREE,OrbitControls,GLTFLoader)
+    createScene(root,JSON.parse(decodeURIComponent(root.dataset.car3d)),THREE,OrbitControls,GLTFLoader,MeshoptDecoder)
       .catch(err=>{console.error('[car3d]',err);root.classList.add('failed');});
   })).catch(err=>{console.error('[car3d-load]',err);roots.forEach(x=>x.classList.add('failed'));});
 }

@@ -6,11 +6,12 @@ let AB = false, ABPOS = 50, DPART = null;
 const DPARTS = [
   {id:'paint',  name:'車身顏色', ic:'paint',  val:b=>PAINTS.find(p=>p.id===b.paint)?.name},
   {id:'wheel',  name:'輪圈',     ic:'disc',   val:b=>wheelStylesOf(car()).find(w=>w.id===b.wheel)?.name},
-  {id:'tire',   name:'尺寸與胎規',ic:'target',val:b=>`${b.size}″ · ${b.tireW}/${b.tireAR}`},
-  {id:'drop',   name:'車身高度', ic:'arrows', val:b=>b.drop?`降低 ${b.drop} mm`:'原廠'},
-  {id:'brake',  name:'煞車卡鉗', ic:'disc',   val:b=>CALIPER_COLORS.find(x=>x.id===b.caliper)?.name},
-  {id:'tint',   name:'車窗隔熱紙',ic:'eye',   val:b=>b.tint?`${b.tint}%`:'無'},
-  {id:'aero',   name:'空力套件', ic:'wind',   val:b=>{const n=countAero(b);return n?`${n} 項`:'無'}},
+  {id:'tire',   name:'輪胎與尺寸',ic:'target',val:b=>TIRE_PRODUCTS.find(x=>x.id===b.tireProduct)?.name},
+  {id:'drop',   name:'懸吊與車高',ic:'arrows', val:b=>SUSPENSION_PRODUCTS.find(x=>x.id===b.suspension)?.name},
+  {id:'brake',  name:'煞車系統', ic:'disc',   val:b=>BRAKE_PRODUCTS.find(x=>x.id===b.brakeKit)?.name},
+  {id:'tint',   name:'隔熱紙',   ic:'eye',    val:b=>TINT_PRODUCTS.find(x=>x.id===b.tintProduct)?.name},
+  {id:'aero',   name:'空力套件', ic:'wind',   val:b=>aeroProductsOf(car()).find(x=>x.id===b.aeroKit)?.name},
+  {id:'alignment',name:'底盤定位',ic:'suspension',val:b=>`前 ${(+b.camberF).toFixed(1)}° / 後 ${(+b.camberR).toFixed(1)}°`},
 ];
 
 function pgDesign(){
@@ -21,9 +22,7 @@ function pgDesign(){
     ${esc(platName(platOf(c)))} 目前有：${bodiesOf(platOf(c)).filter(x=>hasCar3D(x.id)).map(x=>esc(x.name)).join('、')}</span></p>
     <button class="btn pri" onclick="editCar('${c.id}')">去選車身型式</button></div></div>`;
   const b = c.build;
-  const stock = {...b, wheel:'st42', finish:'silver', size:15, tireW:205, tireAR:60, drop:0,
-                 caliper:'stock', tint:0, lip:false, skirt:false, wing:'none',
-                 diffuser:false, wide:false, tips:'single', shadow:false, hood:false};
+  const stock = {...blankCar().build,paint:b.paint};
   const wc = wheelCheck(c, {size:b.size, width:estWidth(b), et:estET(b), tireW:b.tireW, tireAR:b.tireAR});
 
   return `
@@ -71,7 +70,7 @@ function pgDesign(){
   </div>
 
   <div class="note" style="margin-top:var(--s3)">
-    <b>這是以六視圖與原廠尺寸校正的 3D 外觀預覽。</b> 車體採 CC BY 授權基礎網格，零件可獨立更換；並非原廠 CAD，不代表毫米級鈑件尺寸、輪拱間隙或實際安裝相容性。
+    <b>這是依原廠尺寸校正的可互動 3D 外觀預覽。</b> E36 各車身使用獨立授權網格；輪圈、車高、外傾角與束角會直接反映在預覽中。這不是原廠 CAD，安裝前仍須實車量測。
   </div>`;
 }
 
@@ -95,19 +94,21 @@ function partPanel(b, c){
   }
   if(DPART==='wheel'){
     body = `<div style="padding-top:var(--s2)">
-      <div class="wheelpick">${wheelStylesOf(car()).map(w=>`<div class="wp ${b.wheel===w.id?'on':''}" onclick="setB('wheel','${w.id}')">
-        ${wheelThumb(w.id,b.finish)}<span>${esc(w.name)}</span></div>`).join('')}</div>
+      <div class="product-grid">${wheelStylesOf(car()).map(w=>productOption(w,b.wheel,'wheel',w.img
+        ?`<img src="${w.img}" alt="${esc(w.brand+' '+w.name)}" loading="lazy" referrerpolicy="no-referrer">`
+        :wheelThumb(w.id,b.finish))).join('')}</div>
       <div class="t-cap" style="margin-top:var(--s3);margin-bottom:6px">輪圈顏色</div>
       <div class="swx">${WHEEL_FINISHES.map(f=>`<span class="sw ${b.finish===f.id?'on':''}" style="background:${f.face}"
         title="${esc(f.name)}" onclick="setB('finish','${f.id}')"></span>`).join('')}</div>
-      <div class="hint">素材為類別近似的示意圖，不是精確的原廠 Style 復刻。</div></div>`;
+      <div class="hint">品牌款式使用官方商品圖核對，3D 依實際輻條數、雙輻、深唇與凹面結構重建。</div></div>`;
   }
   if(DPART==='tire'){
     const od = tireOD({w:b.tireW,ar:b.tireAR,rim:b.size});
     body = `<div style="padding-top:var(--s2)">
-      ${slider('輪圈尺寸', b.size+' 吋', 'size', 15, 19, 1, b.size)}
-      ${slider('胎寬', b.tireW, 'tireW', 185, 285, 5, b.tireW)}
-      ${slider('扁平比', b.tireAR, 'tireAR', 25, 65, 5, b.tireAR)}
+      <div class="product-grid compact">${TIRE_PRODUCTS.map(x=>productOption(x,b.tireProduct,'tireProduct')).join('')}</div>
+      ${sliderInput('輪圈尺寸','吋','size',14,19,1,b.size)}
+      ${sliderInput('胎寬','mm','tireW',185,285,5,b.tireW)}
+      ${sliderInput('扁平比','%','tireAR',25,70,5,b.tireAR)}
       <div class="kv"><span>規格</span><b>${b.tireW}/${b.tireAR} R${b.size}</b></div>
       <div class="kv"><span>外徑</span><b>${od.toFixed(0)} mm</b></div>
       <div class="note b" style="margin-top:var(--s2)">E36 最佳解通常是 <b>245/40R17</b>，外徑僅 +0.13%、速度表幾乎零誤差。
@@ -115,25 +116,30 @@ function partPanel(b, c){
   }
   if(DPART==='drop'){
     body = `<div style="padding-top:var(--s2)">
-      ${slider('降低幅度', b.drop+' mm', 'drop', 0, 80, 5, b.drop)}
+      <div class="product-grid compact">${SUSPENSION_PRODUCTS.map(x=>productOption(x,b.suspension,'suspension')).join('')}</div>
+      ${sliderInput('前軸降低','mm','dropF',0,80,1,b.dropF)}
+      ${sliderInput('後軸降低','mm','dropR',0,80,1,b.dropR)}
       <div class="note y" style="margin-top:var(--s2)">降低幅度越大，後副樑鎖點的疲勞風險越高 — 這是 E36 的結構性弱點。
         施工前請先掀後座地毯與趴車底檢查四個鎖點。</div>
-      <div class="hint">參考：Bilstein B12 Pro-Kit 前約 30mm、B12 Sportline 前約 45mm、B14 絞牙 35–55mm。</div></div>`;
+      <div class="hint">B14 的 E36 官方範圍：前 35–55 mm、後 20–45 mm。前後可分開調整，車身姿態會同步改變。</div></div>`;
   }
   if(DPART==='brake'){
     body = `<div style="padding-top:var(--s2)">
+      <div class="product-grid compact">${BRAKE_PRODUCTS.map(x=>productOption(x,b.brakeKit,'brakeKit')).join('')}</div>
       <div class="swx">${CALIPER_COLORS.map(x=>`<span class="sw ${b.caliper===x.id?'on':''}" style="background:${x.hex}"
         title="${esc(x.name)}" onclick="setB('caliper','${x.id}')"></span>`).join('')}</div>
-      <div class="kv" style="margin-top:var(--s2)"><span>目前</span><b>${esc(CALIPER_COLORS.find(x=>x.id===b.caliper)?.name)}</b></div>
-      <div class="hint">卡鉗需拆下清潔除鏽再噴，塗料要耐高溫。想升級卡鉗本體請到零件庫的煞車系統分類。</div></div>`;
+      <div class="kv" style="margin-top:var(--s2)"><span>碟盤直徑</span><b>${BRAKE_PRODUCTS.find(x=>x.id===b.brakeKit)?.disc||286} mm</b></div>
+      <div class="hint">卡鉗尺寸、活塞數與碟盤直徑會在輪圈內同步顯示；實際套件仍須核對車型料號與輪圈間隙。</div></div>`;
   }
   if(DPART==='tint'){
     body = `<div style="padding-top:var(--s2)">
-      ${slider('深淺', b.tint+'%', 'tint', 0, 90, 5, b.tint)}
-      <div class="hint">前檔與前門過深會影響夜間視線，各地稽查的可見光穿透率標準不一。</div></div>`;
+      <div class="product-grid compact">${TINT_PRODUCTS.map(x=>productOption(x,b.tintProduct,'tintProduct')).join('')}</div>
+      ${sliderInput('視覺深色程度','%','tint',0,90,5,b.tint)}
+      <div class="hint">產品 VLT 與畫面深淺分開顯示；玻璃角度、環境光與螢幕亮度都會影響視覺結果。</div></div>`;
   }
   if(DPART==='aero'){
     body = `<div style="padding-top:var(--s1)">
+      <div class="product-grid compact">${aeroProductsOf(c).map(x=>productOption(x,b.aeroKit,'aeroKit')).join('')}</div>
       ${chk('lip','前下巴')}${chk('skirt','側裙')}${chk('diffuser','後下擾流')}
       ${chk('hood','引擎蓋散熱孔')}${chk('wide','寬體暴龜','台灣不可行')}
       <div class="t-cap" style="margin-top:var(--s3);margin-bottom:6px">尾翼</div>
@@ -143,14 +149,31 @@ function partPanel(b, c){
       <div class="seg">${[['none','無'],['single','單出'],['dual','雙出'],['quad','四出']].map(([v,n])=>
         `<button class="${b.tips===v?'on':''}" onclick="setB('tips','${v}')">${n}</button>`).join('')}</div></div>`;
   }
+  if(DPART==='alignment') body = alignmentPanel(b);
   return head + body;
 }
 
-function slider(label, val, key, min, max, step, cur){
-  return `<div style="margin-bottom:var(--s2)">
-    <div style="display:flex;justify-content:space-between;font-size:14px">
-      <span class="mut">${label}</span><b>${val}</b></div>
-    <input type="range" min="${min}" max="${max}" step="${step}" value="${cur}" oninput="setB('${key}',+this.value)">
+function productOption(item, current, key, media){
+  const detail=item.cat||item.name,source=productSourceLink(item);
+  const productMedia=media||(item.img?`<img src="${item.img}" alt="${esc(item.brand+' '+item.name)}" loading="lazy" referrerpolicy="no-referrer"
+    onerror="this.remove()"><b class="product-fallback">${esc(item.brand)}</b>`:`<b>${esc(item.brand)}</b>`);
+  return `<div class="product-option ${current===item.id?'on':''}" role="button" tabindex="0"
+    onclick="setB('${key}','${item.id}')" onkeydown="if(event.key==='Enter')setB('${key}','${item.id}')">
+    <div class="product-media">${productMedia}</div>
+    <div class="product-copy"><span>${esc(item.brand||'')}</span><b>${esc(item.name)}</b><small>${esc(detail)}</small></div>
+    ${source?`<span onclick="event.stopPropagation()">${source}</span>`:''}
+  </div>`;
+}
+
+function sliderInput(label, unit, key, min, max, step, cur){
+  const digits=step<1?2:0;
+  return `<div class="tune-control">
+    <div class="tune-head"><label for="rng-${key}">${label}</label>
+      <span><output id="out-${key}">${(+cur).toFixed(digits)}</output> ${unit}</span></div>
+    <div class="tune-inputs"><input id="rng-${key}" type="range" min="${min}" max="${max}" step="${step}" value="${cur}"
+      oninput="setBLive('${key}',+this.value,${digits})" onchange="commitBuild()">
+      <input type="number" min="${min}" max="${max}" step="${step}" value="${cur}" aria-label="${esc(label)}"
+        onchange="setB('${key}',+this.value)"></div>
   </div>`;
 }
 function chk(k, label, warn){
@@ -165,7 +188,84 @@ function estET(b){
   if(b.size<=15) return 47;
   if(w<=7.5) return 45; if(w<=8) return 42; if(w<=8.5) return 40; if(w<=9) return 35; return 30;
 }
-function setB(k,v){ const c=car(); if(!c) return; c.build[k]=v; saveDB(); render(); }
+function alignmentScores(b){
+  const tire=TIRE_PRODUCTS.find(x=>x.id===b.tireProduct)||TIRE_PRODUCTS[0];
+  const cf=Math.abs(+b.camberF||0),cr=Math.abs(+b.camberR||0),tf=Math.abs(+b.toeF||0),tr=+b.toeR||0;
+  const drop=(+b.dropF+ +b.dropR)/2;
+  const clamp=n=>Math.max(20,Math.min(98,Math.round(n)));
+  return {
+    grip:clamp(66+tire.grip+Math.min(cf,2.8)*5+Math.min(cr,2.2)*2-drop*.04-tf*8),
+    speed:clamp(80+(tire.speed||0)-tf*24-Math.abs(tr)*18-drop*.05-(b.wing==='gt'?7:0)),
+    turn:clamp(62+cf*7-(+b.toeF||0)*25+(+b.caster||7)*1.4),
+    stable:clamp(64+Math.max(0,tr)*30+cr*3-Math.max(0,cf-3)*7),
+    wear:clamp(88+(tire.wear||0)-Math.max(0,cf-1.2)*10-Math.max(0,cr-1.5)*9-tf*34-Math.abs(tr)*25),
+  };
+}
+
+function alignmentChart(b){
+  const s=alignmentScores(b),vals=[s.grip,s.speed,s.turn,s.stable,s.wear],cx=110,cy=94,r=66;
+  const point=(v,i)=>{const a=-Math.PI/2+i*Math.PI*2/5,rr=r*v/100;return `${(cx+Math.cos(a)*rr).toFixed(1)},${(cy+Math.sin(a)*rr).toFixed(1)}`;};
+  const ring=v=>Array.from({length:5},(_,i)=>point(v,i)).join(' ');
+  return `<div class="align-chart" id="alignLive"><svg viewBox="0 0 220 190" role="img" aria-label="底盤設定動態趨勢圖">
+    <g class="chart-grid"><polygon points="${ring(100)}"/><polygon points="${ring(70)}"/><polygon points="${ring(40)}"/></g>
+    <polygon class="chart-area" points="${vals.map(point).join(' ')}"/>
+    <text x="110" y="13">抓地 ${s.grip}</text><text x="194" y="73">直線 ${s.speed}</text>
+    <text x="164" y="181">轉向 ${s.turn}</text><text x="56" y="181">穩定 ${s.stable}</text><text x="25" y="73">胎耗 ${s.wear}</text>
+  </svg><div class="chart-readout">${Object.entries({抓地:s.grip,直線:s.speed,轉向:s.turn,穩定:s.stable,胎耗:s.wear}).map(([k,v])=>`<span><i style="--v:${v}%"></i><b>${k}</b><em>${v}</em></span>`).join('')}</div></div>`;
+}
+
+function alignmentPanel(b){
+  return `<div class="alignment-panel">
+    <div class="preset-row"><button onclick="applyAlignmentPreset('street')">街道</button><button onclick="applyAlignmentPreset('touge')">山路</button><button onclick="applyAlignmentPreset('track')">賽道</button></div>
+    ${alignmentChart(b)}
+    <h4>前軸</h4>
+    ${sliderInput('外傾角 Camber','°','camberF',-4,0,.1,b.camberF)}
+    ${sliderInput('束角 Toe','°','toeF',-.30,.30,.01,b.toeF)}
+    ${sliderInput('主銷後傾 Caster','°','caster',3,10,.1,b.caster)}
+    ${sliderInput('輪距增量','mm','trackF',0,40,1,b.trackF)}
+    ${sliderInput('冷胎壓','psi','pressureF',24,44,1,b.pressureF)}
+    <h4>後軸</h4>
+    ${sliderInput('外傾角 Camber','°','camberR',-4,0,.1,b.camberR)}
+    ${sliderInput('束角 Toe','°','toeR',-.30,.30,.01,b.toeR)}
+    ${sliderInput('輪距增量','mm','trackR',0,40,1,b.trackR)}
+    ${sliderInput('冷胎壓','psi','pressureR',24,44,1,b.pressureR)}
+    <div class="hint">圖表是相對趨勢模擬，用來比較設定方向，不是定位機或輪胎實測數據。</div>
+  </div>`;
+}
+
+function mutateBuild(b,k,v){
+  b[k]=v;
+  if(k==='drop'){b.dropF=v;b.dropR=v;}
+  if(k==='dropF'||k==='dropR') b.drop=Math.round((+b.dropF+ +b.dropR)/2);
+  if(k==='suspension'){
+    const x=SUSPENSION_PRODUCTS.find(p=>p.id===v)||SUSPENSION_PRODUCTS[0];
+    b.dropF=x.front[0];b.dropR=x.rear[0];b.drop=Math.round((b.dropF+b.dropR)/2);
+  }
+  if(k==='brakeKit'){
+    const x=BRAKE_PRODUCTS.find(p=>p.id===v);if(x&&x.color)b.caliper=x.color;
+  }
+  if(k==='tintProduct'){
+    const x=TINT_PRODUCTS.find(p=>p.id===v)||TINT_PRODUCTS[0];b.tint=x.id==='none'?0:100-x.vlt;
+  }
+  if(k==='aeroKit'){
+    const x=aeroProductsOf(car()).find(p=>p.id===v)||AERO_PRODUCTS[0];
+    ['lip','skirt','diffuser','wing'].forEach(a=>b[a]=x[a]);
+  }
+}
+function setB(k,v){ const c=car(); if(!c) return; mutateBuild(c.build,k,v);saveDB();render(); }
+function setBLive(k,v,digits=0){
+  const c=car();if(!c)return;mutateBuild(c.build,k,v);saveDB();
+  const out=$(`#out-${k}`);if(out)out.textContent=(+v).toFixed(digits);
+  if(typeof updateCar3DBuild==='function') updateCar3DBuild(c.build);
+  const chart=$('#alignLive');if(chart)chart.outerHTML=alignmentChart(c.build);
+}
+function commitBuild(){ saveDB();render(); }
+function applyAlignmentPreset(id){
+  const presets={street:{camberF:-1.1,camberR:-1.5,toeF:.02,toeR:.10,caster:7.0},
+    touge:{camberF:-2.2,camberR:-1.8,toeF:-.05,toeR:.12,caster:7.8},
+    track:{camberF:-3.2,camberR:-2.2,toeF:-.10,toeR:.15,caster:8.5}};
+  const c=car(),p=presets[id];if(!c||!p)return;Object.assign(c.build,p);saveDB();render();
+}
 function resetBuild(){
   const c = car(); if(!c) return;
   const keep = c.build.paint;

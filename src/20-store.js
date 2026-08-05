@@ -17,13 +17,33 @@ const blankCar = () => ({
   lastSvcKm:0, lastSvcDate:'',
   photos:{}, notes:'',
   build:{ paint:'alpine', wheel:'st42', finish:'silver', size:17, tireW:245, tireAR:40,
-          drop:0, caliper:'stock', tint:0, lip:false, skirt:false, wing:'none',
+          tireProduct:'street', suspension:'stock', brakeKit:'stock', tintProduct:'none', aeroKit:'stock',
+          drop:0, dropF:0, dropR:0, camberF:-1.0, camberR:-1.5, toeF:0.00, toeR:0.10,
+          caster:7.0, trackF:0, trackR:0, pressureF:34, pressureR:36,
+          caliper:'stock', tint:0, lip:false, skirt:false, wing:'none',
           diffuser:false, wide:false, tips:'single', shadow:false, hood:false },
   parts:[], logs:[], fuelLogs:[], plans:[], project:[],
 });
 
 /* tracks 為後加欄位：舊備份沒有這個鍵時，Object.assign 會補上空陣列，不影響既有資料 */
 const DEF = { cars:[], cur:null, ver:1, savedAt:null, tracks:[] };
+
+function normalizeCarData(c){
+  if(!Array.isArray(c.fuelLogs)) c.fuelLogs=[];
+  const old=c.build||{},fresh=blankCar();
+  c.build=Object.assign(structuredClone(fresh.build),old);
+  if(c.build.dropF===0&&c.build.drop)c.build.dropF=c.build.drop;
+  if(c.build.dropR===0&&c.build.drop)c.build.dropR=c.build.drop;
+  if(!Object.hasOwn(old,'suspension')&&c.build.drop>0)c.build.suspension='b14';
+  if(!Object.hasOwn(old,'brakeKit')&&c.build.caliper!=='stock')c.build.brakeKit=c.build.caliper==='red'?'brembo':'m3';
+  if(!Object.hasOwn(old,'tintProduct')&&c.build.tint>0)c.build.tintProduct=c.build.tint>=50?'3m-ma40':'3m-ma70';
+  if(!Object.hasOwn(old,'aeroKit')&&(c.build.lip||c.build.skirt||c.build.wing!=='none'))c.build.aeroKit=platOf(c)==='dsm2g'?'gsx-oem':'mtech';
+  const aliases={mesh:'bbs-lm',dish:'arc8'};
+  if(aliases[c.build.wheel])c.build.wheel=aliases[c.build.wheel];
+  const wheelSet=platOf(c)==='dsm2g'?ECL_WHEEL_STYLES:WHEEL_STYLES;
+  if(!wheelSet.some(x=>x.id===c.build.wheel))c.build.wheel=platOf(c)==='dsm2g'?'ecl-oem':'st42';
+  return c;
+}
 
 function loadDB(){
   if(!LS_OK) return MEM || (MEM = structuredClone(DEF));
@@ -32,7 +52,7 @@ function loadDB(){
     if(!r) return structuredClone(DEF);
     const d = JSON.parse(r);
     const out = Object.assign(structuredClone(DEF), d);
-    (out.cars||[]).forEach(c=>{ if(!Array.isArray(c.fuelLogs)) c.fuelLogs=[]; });
+    (out.cars||[]).forEach(normalizeCarData);
     return out;
   }catch(e){ return structuredClone(DEF); }
 }
@@ -77,6 +97,7 @@ function importJSON(file){
       const d = JSON.parse(r.result);
       if(!d || !Array.isArray(d.cars)) throw new Error('格式不符');
       DB = Object.assign(structuredClone(DEF), d);
+      DB.cars.forEach(normalizeCarData);
       saveDB(); render();
       toast(`已匯入 ${DB.cars.length} 台車`,'ok');
     }catch(e){ toast('匯入失敗：'+e.message,'bad'); }

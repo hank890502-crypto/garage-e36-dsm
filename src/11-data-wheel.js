@@ -62,17 +62,19 @@ const FITMENT_GUIDE = [
   {car:'m3',   size:17, w:10,  et:25, tire:'275/35R17', lvl:'wide', need:['寬體／暴龜'], note:'賽道極限'},
 ];
 
-/* 輪圈樣式 — 對應 3D 輪框幾何與零件庫縮圖。
-   ⚠ 這些是「類別近似」的示意圖，不是精確的原廠 Style 復刻。 */
+/* 輪圈樣式：spoke 幾何與 face profile 會直接驅動 3D 輪圈。 */
 const WHEEL_STYLES = [
-  {id:'st5',   name:'雙輻 Style 5',    cat:'五雙輻'},
-  {id:'st42',  name:'十字輻 Style 42', cat:'十輻'},
-  {id:'st39',  name:'葵花 Style 39',   cat:'五 V 輻'},
-  {id:'st24',  name:'圓輻 Style 24',   cat:'十輻'},
-  {id:'mesh',  name:'網狀 Mesh',       cat:'網狀'},
-  {id:'st66',  name:'M Parallel',      cat:'五平行輻'},
-  {id:'dish',  name:'深唇 Deep Dish',  cat:'深唇八輻'},
-  {id:'steel', name:'鋼圈＋輪蓋',      cat:'鋼圈'},
+  {id:'st5',   brand:'BMW',name:'Style 5',  cat:'五雙輻',spokes:10,pair:true},
+  {id:'st42',  brand:'BMW',name:'Style 42', cat:'交叉輻',spokes:20,mesh:true},
+  {id:'st39',  brand:'BMW M',name:'Style 39 DS2',cat:'五雙輻',spokes:10,pair:true},
+  {id:'st24',  brand:'BMW M',name:'Style 24 LTW',cat:'五雙輻',spokes:10,pair:true},
+  {id:'bbs-lm',brand:'BBS',name:'LM',cat:'交叉輻鍛造二片式',spokes:20,mesh:true,dish:true,
+   img:'https://bbs-japan.co.jp/en/wp-content/uploads/sites/2/2016/10/newLM.jpg',src:'bbs_lm'},
+  {id:'arc8',brand:'APEX',name:'ARC-8',cat:'十輻 Flow Formed',spokes:10,thin:true,concave:true,src:'apex_arc8'},
+  {id:'rpf1',brand:'Enkei',name:'RPF1',cat:'六雙輻 MAT',spokes:12,pair:true,thin:true,
+   img:'https://enkei.com/wp-content/uploads/2019/12/ENKEI-RPF1-SP-144-WEB-510x510.jpg',src:'enkei_rpf1'},
+  {id:'st66', brand:'BMW M',name:'Style 66',cat:'五雙輻',spokes:10,pair:true,wide:true},
+  {id:'steel',brand:'BMW',name:'原廠鋼圈',cat:'鋼圈',spokes:12,steel:true},
 ];
 
 /* 輪圈顏色：以 multiply 疊在銀色素材上（輪胎為黑，multiply 後仍是黑，不受影響）

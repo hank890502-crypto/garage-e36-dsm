@@ -1,5 +1,6 @@
 import * as THREE from './three.module.min.js';
 import { OrbitControls } from './addons/controls/OrbitControls.js';
 import { GLTFLoader } from './addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from './meshopt_decoder.mjs';
 
-window.CAR3D_LIB = { THREE, OrbitControls, GLTFLoader };
+window.CAR3D_LIB = { THREE, OrbitControls, GLTFLoader, MeshoptDecoder };

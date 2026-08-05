@@ -1,0 +1,11 @@
+Model Information:
+* title:	BMW 3 Series E36 Touring
+* source:	https://sketchfab.com/3d-models/bmw-3-series-e36-touring-34cbf0494ce64181aebc8383ecce40c5
+* author:	Nieve5677 (https://sketchfab.com/iori308408)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "BMW 3 Series E36 Touring" (https://sketchfab.com/3d-models/bmw-3-series-e36-touring-34cbf0494ce64181aebc8383ecce40c5) by Nieve5677 (https://sketchfab.com/iori308408) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
