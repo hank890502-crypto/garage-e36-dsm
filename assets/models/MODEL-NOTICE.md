@@ -28,12 +28,24 @@ material names changed to match the shading rules, no source textures attached.
 
 ## Mitsubishi Eclipse 2G
 
-`eclipse-99/model.glb` (2025 set) — ⚠️ **ATTRIBUTION REQUIRED**. Rebuilt from a Sketchfab
-source package (`1999-mitsubishi-eclipse-gsx.zip`, FBX + 25 textures) that contained no
-licence file. Converted here with FBX2glTF, original wheels removed (the app rebuilds them
-from measured hardpoints), materials renamed to match the shading rules, textures resized
-to 1024 px. 122,798 down to 98,782 triangles, 7.1 MB down to 3.5 MB.
-**Name the author and licence before publishing.**
+`eclipse-99/model.glb` (2025 set) — ⚠️ **CC BY-NC-SA — the strictest licence in this
+project.** The model page states "CC 署名-非商業性使用-相同方式共享" (Attribution +
+NonCommercial + ShareAlike). The uploader's own description links Instagram
+`ddiaz.design` and `paypal.me/sergiodd`, and credits the base as an "极品飞车 / Need for
+Speed" model. **The uploader's Sketchfab display name still needs to be recorded here.**
+
+Three consequences, all of which apply to this repository:
+1. **NonCommercial** — the app must stay free: no ads, no sponsorship, no paid tier, no
+   affiliate links to wheel or parts shops. Hosting on GitHub is fine (using a commercial
+   host for a non-commercial purpose is not itself commercial use).
+2. **ShareAlike** — this converted `.glb` is a derivative and must itself be offered under
+   CC BY-NC-SA. Say so wherever it is distributed.
+3. The base is described as derived from a commercial game asset, so the uploader may not
+   have had the right to license it at all. Treat this model as the highest-risk asset here.
+
+Converted with FBX2glTF from the source FBX; original wheels removed (the app rebuilds
+them from measured hardpoints), materials renamed to match the shading rules, textures
+resized to 1024 px. 122,798 down to 98,782 triangles, 7.1 MB down to 3.5 MB.
 
 `eclipse/` (scene.gltf) — "Mitsubishi Eclipse 1997-1999 II" by szymonpasterczyk734,
 CC BY 4.0. No longer referenced by the preview; can be deleted.

@@ -4447,6 +4447,16 @@ function bodyStance(spec, build){
   const tilt=(dF-dR)/wb;              // 繞 Z：Δy = x·tilt，車頭在 −X 所以前降時 tilt 為正
   return {tilt, dy:-dF-front*tilt};   // dy 補正旋轉造成的偏移，讓兩軸各自落在指定高度
 }
+/* 把俯仰套用到車身。
+   normalizeImportedCar() 會對「長度在 Z 軸」的網格設 rotation.y = -π/2，
+   之後若直接寫 model.rotation.z，那個角度是在模型的區域座標下生效 ——
+   經過 -90° Y 之後在世界座標會變成繞 X 軸，也就是左右側傾而不是前後俯仰。
+   所以改成以世界 Z 軸 premultiply 到原始姿態上。 */
+function applyBodyTilt(THREE, model, tilt){
+  if(!model.userData.baseQuat) model.userData.baseQuat=model.quaternion.clone();
+  model.quaternion.copy(model.userData.baseQuat)
+    .premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), tilt));
+}
 
 function car3DTireRadius(build){
   const od=(+build.size||17)*25.4+2*((+build.tireW||225)*(+build.tireAR||45)/100);
@@ -4555,7 +4565,7 @@ function buildProceduralCarModel(THREE, spec, build){
   addWheelArches(THREE,body,spec,build,paint,tireR);addLightingParts(THREE,body,spec);
   addMirrors(THREE,body,spec,paint);addAero(THREE,body,spec,build,paint);
   const stance=bodyStance(spec,build);
-  body.position.y=stance.dy;body.rotation.z=stance.tilt;
+  body.position.y=stance.dy;applyBodyTilt(THREE,body,stance.tilt);
   Object.assign(body.userData,{vehicleBody:true,baseY:0});root.add(body);
   addWheels(THREE,root,spec,build,tireR);addExhaust(THREE,root,spec,build);
   root.rotation.y=0;
@@ -4865,7 +4875,7 @@ async function buildImportedCarModel(THREE, GLTFLoader, MeshoptDecoder, spec, bu
   const stance=bodyStance(spec,wheelBuild);
   const baseY=model.position.y;
   model.position.y=baseY+car3DRideOffset(spec.id,wheelBuild)+stance.dy;
-  model.rotation.z=stance.tilt;
+  applyBodyTilt(THREE,model,stance.tilt);
   Object.assign(model.userData,{vehicleBody:true,baseY,ride:true});root.add(model);
   // 有註冊外部輪輻面素材時先載入；沒註冊會立刻 resolve(null)，不影響啟動速度
   await ensureWheelFace(THREE,GLTFLoader,MeshoptDecoder,wheelBuild.wheel).catch(()=>null);
@@ -4987,7 +4997,7 @@ function updateCar3DBuild(build){
       if(o.userData.vehicleBody){
         const ride=o.userData.ride?car3DRideOffset(x.spec.id,build):0;
         o.position.y=(o.userData.baseY||0)+ride+stance.dy;
-        o.rotation.z=stance.tilt;
+        applyBodyTilt(THREE,o,stance.tilt);
       }
       if(!o.userData.carWheel)return;
       const {front,side}=o.userData,camber=+(front?build.camberF:build.camberR)||0,toe=+(front?build.toeF:build.toeR)||0;
