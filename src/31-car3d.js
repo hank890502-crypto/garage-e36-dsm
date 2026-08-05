@@ -25,7 +25,7 @@ const CAR3D_BODY_CONFIG = {
     frontX:1.450,rearX:-1.260,frontY:.300,rearY:.300,frontTrack:.720,rearTrack:.735},
   touring:{wheelMode:'replace',frontX:-1.472,rearX:1.229,frontY:.311,rearY:.311,frontTrack:.735,rearTrack:.745},
   cabrio:{wheelMode:'replace',frontX:-1.350,rearX:1.256,frontY:.300,rearY:.314,frontTrack:.740,rearTrack:.755},
-  coupe2g:{wheelMode:'replace',frontX:-1.305,rearX:1.205,frontY:.315,rearY:.315,frontTrack:.650,rearTrack:.650},
+  coupe2g:{wheelMode:'replace',yOffset:.105,frontX:-1.305,rearX:1.205,frontY:.315,rearY:.315,frontTrack:.650,rearTrack:.650},
 };
 const CAR3D_REVERSED_BODIES=new Set(['compact']);
 const CAR3D_MODEL_CACHE = new Map();
@@ -640,10 +640,12 @@ function styleImportedCar(THREE, model, spec, build){
   const fin=WHEEL_FINISHES.find(x=>x.id===build.finish)||WHEEL_FINISHES[0];
   model.traverse(o=>{
     if(!o.isMesh) return;
+    const paintSideSkirt=spec.eclipse&&o.name==='eclipse_black-material'&&o.parent?.name.startsWith('eclipse_sideskirts');
     o.castShadow=true;o.receiveShadow=true;
     const wasArray=Array.isArray(o.material),materials=wasArray?o.material:[o.material];
     const styled=materials.map(m=>{
       const name=(m.name||'').toLowerCase();
+      if(paintSideSkirt){const p=paint.clone();p.name=m.name;return p;}
       if(/car[\s_.-]*paint|bmwe36_(paint|leibi)/.test(name)||name.includes('carpaint_flakes_blue')||name==='eclipse_body'
         ||spec.id==='cabrio'&&name.includes('bmwe36_signal_l')){
         const p=paint.clone();p.name=m.name;return p;
@@ -672,8 +674,18 @@ function styleImportedCar(THREE, model, spec, build){
 
 function setImportedVisibility(model, spec, build){
   const set=(name,visible)=>{const x=model.getObjectByName(name);if(x)x.visible=visible;};
+  const hideDirectChild=(parentName,childName)=>{
+    const parent=model.getObjectByName(parentName);
+    parent?.children.filter(x=>x.name===childName).forEach(x=>x.visible=false);
+  };
   if(spec.eclipse){
-    set('wheel',false);set('eclipse_tubs',false);set('eclipse_exhaust',false);set('eclipse_exhaust_fartcan',false);
+    set('wheel',false);set('eclipse_exhaust',false);set('eclipse_exhaust_fartcan',false);
+    hideDirectChild('eclipse_body','eclipse_underbody-material');
+    hideDirectChild('eclipse_body','eclipse_Juiced_nosskirt-material');
+    hideDirectChild('eclipse_body','eclipse_black-material');
+    set('eclipse_tubs',true);hideDirectChild('eclipse_tubs','eclipse_black-material');
+    hideDirectChild('eclipse_fender_L','eclipse_black-material');
+    hideDirectChild('eclipse_fender_R','eclipse_black-material');
     const kit=build.aeroKit==='duraflex-b2';
     set('eclipse_bumper_F',!kit);set('eclipse_bumper_R',!kit);
     set('eclipse_bumperkit_F',kit);set('eclipse_bumperkit_R',kit);
