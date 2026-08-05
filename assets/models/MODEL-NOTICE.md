@@ -28,17 +28,24 @@ material names changed to match the shading rules, no source textures attached.
 
 ## Mitsubishi Eclipse 2G
 
-`eclipse/` — "Mitsubishi Eclipse 1997-1999 II" by szymonpasterczyk734, CC BY 4.0.
+`eclipse-99/model.glb` (2025 set) — ⚠️ **ATTRIBUTION REQUIRED**. Rebuilt from a Sketchfab
+source package (`1999-mitsubishi-eclipse-gsx.zip`, FBX + 25 textures) that contained no
+licence file. Converted here with FBX2glTF, original wheels removed (the app rebuilds them
+from measured hardpoints), materials renamed to match the shading rules, textures resized
+to 1024 px. 122,798 down to 98,782 triangles, 7.1 MB down to 3.5 MB.
+**Name the author and licence before publishing.**
+
+`eclipse/` (scene.gltf) — "Mitsubishi Eclipse 1997-1999 II" by szymonpasterczyk734,
+CC BY 4.0. No longer referenced by the preview; can be deleted.
 
 ## Wheel face assets
 
 `../wheels/face-bbs.glb` — spoke face extracted from "BBS Wheel" by Serjogasan
-(https://sketchfab.com/3d-models/bbs-wheel-f7790f517f3e42fb91a00fb9a0405cd6),
-**CC BY 4.0** — attribution required, commercial use allowed. Confirmed on the model
-page. See `../wheels/face-bbs-license.txt` for the full credit line and the conversion
-notes. The source is tagged mitsubishi / lancer and described as "BBS Wheel with a tire",
-so it is a BBS-style mesh wheel rather than a specific product; the app files it under
-the `bbs-lm` entry on shape resemblance only.
+(https://sketchfab.com/3d-models/bbs-wheel-f7790f517f3e42fb91a00fb9a0405cd6).
+Listed on Sketchfab as a free download, so it carries one of the Creative Commons
+licences — **the exact variant is still unconfirmed and must be read off the model
+page before publishing**. If it turns out to be any NonCommercial variant, drop it.
+See `../wheels/face-bbs-license.txt`.
 
 Separately from the file licence: a recognisable aftermarket wheel design may carry
 design rights, and the brand name and centre-cap logo are trademarks. Reproducing the

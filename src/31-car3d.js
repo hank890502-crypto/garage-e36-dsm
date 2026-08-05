@@ -10,7 +10,10 @@ const CAR3D_MODEL_URLS = {
   compact:'./assets/models/e36-compact/model.glb',
   touring:'./assets/models/e36-touring/model.glb',
   cabrio:'./assets/models/e36-cabrio/model.glb',
-  coupe2g:'./assets/models/eclipse/scene.gltf',
+  /* 2025 版 GSX：由 Sketchfab 的 source FBX 自行轉檔，
+     已移除原始輪組（材質 Tire / Rim_Main / Rim_Badge / BrakeDisk），
+     材質改名對齊本程式的通用著色規則。122,798 → 98,782 面。 */
+  coupe2g:'./assets/models/eclipse-99/model.glb',
   /* E36 M3 專用車體。由 Sketchfab 的 source OBJ 自行轉檔：
      已移除場景地板與原始輪組（輪組由 app 依 datum 重建），63,433 → 21,392 面。 */
   'coupe-m3':'./assets/models/e36-m3/model.glb',
@@ -30,8 +33,10 @@ const CAR3D_BODY_CONFIG = {
   compact:{wheelMode:'replace', frontX:-1.3592, rearX:1.3479, yOffset:.1631},
   touring:{wheelMode:'replace', frontX:-1.4723, rearX:1.2293, yOffset:.1628, paintRoughness:.33},
   cabrio: {wheelMode:'replace', frontX:-1.4712, rearX:1.2437, yOffset:.1603},
-  coupe2g:{wheelMode:'replace',yOffset:.155,frontX:-1.305,rearX:1.205,frontTrack:.758,rearTrack:.753,
-    repairMaterials:true,smoothPaintNormals:true,relaxPaintSurface:3,paintRoughness:.30},
+  /* genericMaterials：新網格的節點名與舊版 eclipse_* 那一套完全不同，
+     改走與 E36 相同的通用材質規則（材質已在轉檔時改名對齊）。 */
+  coupe2g:{wheelMode:'replace', frontX:-1.2523, rearX:1.2799, yOffset:0.1204,
+    genericMaterials:true, paintRoughness:.30},
   /* E36 M3：同上，yOffset 為實測的車體最低點與輪胎觸地面差值。 */
   'coupe-m3':{wheelMode:'replace',yOffset:.1229,frontX:-1.4382,rearX:1.2432},
 };
@@ -326,7 +331,11 @@ const CAR3D_DATUM = {
   cabrio: {hubFaceF:.7646, hubFaceR:.7646, oemET:47, refTireR:.3118, src:'measured'},
   /* Eclipse 的捐贈網格只有一顆孤立在原點的 15 吋鋼圈，不能當基準，改用公開規格：
      前輪距 1513.8 / 後 1508.8 mm（半 756.9 / 754.4），原廠 ET46。 */
-  coupe2g:{hubFaceF:.8029, hubFaceR:.8004, oemET:46, refTireR:.3234, src:'spec'},
+  /* 2025 版 GSX 網格實測：半輪距 前 756.7 / 後 752.7 mm
+     （真實輪距 1513.8 / 1508.8 → 756.9 / 754.4，差 −0.2 / −1.7 mm，七顆裡最準）
+     軸距 2532 mm（真實 2510，+22）、胎徑 645 mm、輪心高 323 mm。原廠 ET46。
+     （以 app 的 coupe2g 車長 4390 mm 換算） */
+  coupe2g:{hubFaceF:0.7973, hubFaceR:0.7933, oemET:46, refTireR:0.3231, src:'measured'},
   /* E36 M3：由 source OBJ 的輪組實測。半輪距 前 705.4 / 後 721.3 mm
      （真實 M3 輪距 1422/1444 → 711.0/722.0，差 −5.6 / −0.7 mm），軸距 2681.4 mm。
      原廠 ET41（Style 22/23/24/39 皆為 ET41）。 */
@@ -838,6 +847,34 @@ function addExhaust(THREE, root, spec, build){
 /* 輪胎靜態半徑（公尺）。舊版夾在 .285–.39，但 UI 滑桿允許的外徑範圍是 448–882 mm，
    兩端都會被夾住 —— 那正是「輪心固定 300 mm、輪胎陷進地面」的來源。
    現在輪心高度直接等於這個值，所以只保留防呆用的寬鬆上下限。 */
+/* --------------------------------------------------------------------------
+   車身姿態：前後軸各自降低
+   --------------------------------------------------------------------------
+   舊版寫 `+build.dropF || +build.drop`，但 0 在 JS 是 falsy —— 把前軸設成 0 時
+   會掉到 build.drop（前後平均值）去，所以「前 0 / 後 60」實際畫成「前 30 / 後 60」。
+   任何一軸設 0 都會中招。這裡改成只有在欄位真的不存在時才回退。
+
+   旋轉也重寫過：舊版繞模型原點（車身 bbox 中心）轉，但軸距中點並不在原點，
+   會多出幾 mm 的垂直偏移。現在直接解出「前軸正好降 dropF、後軸正好降 dropR」
+   的旋轉角與位移量，並改用 config 裡的實際軸位而不是規格軸距。
+   -------------------------------------------------------------------------- */
+function axleDrop(build, key){
+  const v=+build?.[key];
+  if(Number.isFinite(v)) return Math.max(0,v);
+  const d=+build?.drop;
+  return Number.isFinite(d)?Math.max(0,d):0;
+}
+function bodyStance(spec, build){
+  const cfg=car3DBodyConfig(spec.id);
+  const dF=axleDrop(build,'dropF')/1000, dR=axleDrop(build,'dropR')/1000;
+  const xF=+cfg.frontX, xR=+cfg.rearX;
+  const ok=Number.isFinite(xF)&&Number.isFinite(xR)&&Math.abs(xR-xF)>.5;
+  const front=ok?xF:-Math.max(1,spec.wheelbase)/2;
+  const wb=ok?(xR-xF):Math.max(1,spec.wheelbase);
+  const tilt=(dF-dR)/wb;              // 繞 Z：Δy = x·tilt，車頭在 −X 所以前降時 tilt 為正
+  return {tilt, dy:-dF-front*tilt};   // dy 補正旋轉造成的偏移，讓兩軸各自落在指定高度
+}
+
 function car3DTireRadius(build){
   const od=(+build.size||17)*25.4+2*((+build.tireW||225)*(+build.tireAR||45)/100);
   return Math.max(.20,Math.min(.46,od/2000));
@@ -944,8 +981,8 @@ function buildProceduralCarModel(THREE, spec, build){
   addWindows(THREE,body,spec,build,cabinWidth);addPanelLines(THREE,body,spec);addBodyTrim(THREE,body,spec,paint);
   addWheelArches(THREE,body,spec,build,paint,tireR);addLightingParts(THREE,body,spec);
   addMirrors(THREE,body,spec,paint);addAero(THREE,body,spec,build,paint);
-  const dropF=Math.max(0,+build.dropF||+build.drop||0),dropR=Math.max(0,+build.dropR||+build.drop||0);
-  body.position.y=-(dropF+dropR)/2000;body.rotation.z=(dropF-dropR)/1000/Math.max(1,spec.wheelbase);
+  const stance=bodyStance(spec,build);
+  body.position.y=stance.dy;body.rotation.z=stance.tilt;
   Object.assign(body.userData,{vehicleBody:true,baseY:0});root.add(body);
   addWheels(THREE,root,spec,build,tireR);addExhaust(THREE,root,spec,build);
   root.rotation.y=0;
@@ -1118,21 +1155,22 @@ function importedPartPath(object,depth=5){
 }
 
 function styleImportedCar(THREE, model, spec, build){
+  const eclipseLegacy=spec.eclipse&&!car3DBodyConfig(spec.id).genericMaterials;
   const config=car3DBodyConfig(spec.id),paintDef=car3DPaint(spec,build);
   const paint=physicalPaint(THREE,paintDef.hex,{roughness:config.paintRoughness});
   const fin=WHEEL_FINISHES.find(x=>x.id===build.finish)||WHEEL_FINISHES[0];
   model.traverse(o=>{
     if(!o.isMesh) return;
     const partPath=importedPartPath(o);
-    const paintSideSkirt=spec.eclipse&&o.name==='eclipse_black-material'&&o.parent?.name.startsWith('eclipse_sideskirts');
-    const eclipseWindow=spec.eclipse&&/(windshield|doorglass|backlight|sideglass)/.test(partPath);
-    const eclipseHeadlight=spec.eclipse&&/eclipse_headlight_[lr]/.test(partPath);
-    const eclipseFrontLamp=spec.eclipse&&/eclipse_bumper_f/.test(partPath);
-    const eclipseTail=spec.eclipse&&/(trunklight|trunklightframe)/.test(partPath);
-    const eclipseInterior=spec.eclipse&&/(dash|seat|steer)/.test(partPath);
-    const eclipseExhaust=spec.eclipse&&/exhaust/.test(partPath);
-    const eclipseEngine=spec.eclipse&&/(engine|radiator)/.test(partPath);
-    const eclipseSpoilerLamp=spec.eclipse&&/eclipse_spoiler\//.test(partPath);
+    const paintSideSkirt=eclipseLegacy&&o.name==='eclipse_black-material'&&o.parent?.name.startsWith('eclipse_sideskirts');
+    const eclipseWindow=eclipseLegacy&&/(windshield|doorglass|backlight|sideglass)/.test(partPath);
+    const eclipseHeadlight=eclipseLegacy&&/eclipse_headlight_[lr]/.test(partPath);
+    const eclipseFrontLamp=eclipseLegacy&&/eclipse_bumper_f/.test(partPath);
+    const eclipseTail=eclipseLegacy&&/(trunklight|trunklightframe)/.test(partPath);
+    const eclipseInterior=eclipseLegacy&&/(dash|seat|steer)/.test(partPath);
+    const eclipseExhaust=eclipseLegacy&&/exhaust/.test(partPath);
+    const eclipseEngine=eclipseLegacy&&/(engine|radiator)/.test(partPath);
+    const eclipseSpoilerLamp=eclipseLegacy&&/eclipse_spoiler\//.test(partPath);
     o.castShadow=true;o.receiveShadow=true;
     const wasArray=Array.isArray(o.material),materials=wasArray?o.material:[o.material];
     const styled=materials.map(m=>{
@@ -1154,8 +1192,8 @@ function styleImportedCar(THREE, model, spec, build){
       const eclipseFrontLens=eclipseFrontLamp&&/(vehiclelights|steklofar|eclipse_(fl|fr))/.test(name);
       const eclipseTailLens=eclipseTail&&/(steklofar|lightzad|red|vehiclelights|eclipse_(fl|fr))/.test(name);
       const eclipseBrakeLens=eclipseSpoilerLamp&&name.includes('vehiclelights');
-      const lampGlass=eclipseHeadLens||eclipseFrontLens||eclipseTailLens||eclipseBrakeLens||(!spec.eclipse&&genericLamp);
-      const windowGlass=eclipseWindow||(!spec.eclipse&&(name.includes('window')||name.includes('windscreen')
+      const lampGlass=eclipseHeadLens||eclipseFrontLens||eclipseTailLens||eclipseBrakeLens||(!eclipseLegacy&&genericLamp);
+      const windowGlass=eclipseWindow||(!eclipseLegacy&&(name.includes('window')||name.includes('windscreen')
         ||name.includes('windshield')||name.includes('windshild')||(name.includes('glass')&&!lampGlass)));
       if(config.repairMaterials&&!windowGlass&&!lampGlass)makeImportedMaterialOpaque(r);
       if(windowGlass){
@@ -1207,12 +1245,13 @@ function styleImportedCar(THREE, model, spec, build){
 }
 
 function setImportedVisibility(model, spec, build){
+  const eclipseLegacy=spec.eclipse&&!car3DBodyConfig(spec.id).genericMaterials;
   const set=(name,visible)=>{const x=model.getObjectByName(name);if(x)x.visible=visible;};
   const hideDirectChild=(parentName,childName)=>{
     const parent=model.getObjectByName(parentName);
     parent?.children.filter(x=>x.name===childName).forEach(x=>x.visible=false);
   };
-  if(spec.eclipse){
+  if(eclipseLegacy){
     set('wheel',false);set('eclipse_exhaust',build.tips!=='none');set('eclipse_exhaust_fartcan',false);
     hideDirectChild('eclipse_body','eclipse_underbody-material');
     hideDirectChild('eclipse_body','eclipse_Juiced_nosskirt-material');
@@ -1249,11 +1288,11 @@ async function buildImportedCarModel(THREE, GLTFLoader, MeshoptDecoder, spec, bu
   normalizeImportedCar(THREE,model,spec);
   smoothImportedPaintNormals(THREE,model,spec);
   const paint=styleImportedCar(THREE,model,spec,build);setImportedVisibility(model,spec,build);
-  const dropF=Math.max(0,+build.dropF||+build.drop||0),dropR=Math.max(0,+build.dropR||+build.drop||0);
   const wheelBuild={...build,tireW:Math.min(+build.tireW||225,spec.eclipse?265:285)};
+  const stance=bodyStance(spec,wheelBuild);
   const baseY=model.position.y;
-  model.position.y=baseY+car3DRideOffset(spec.id,wheelBuild)-(dropF+dropR)/2000;
-  model.rotation.z=(dropF-dropR)/1000/Math.max(1,spec.wheelbase);
+  model.position.y=baseY+car3DRideOffset(spec.id,wheelBuild)+stance.dy;
+  model.rotation.z=stance.tilt;
   Object.assign(model.userData,{vehicleBody:true,baseY,ride:true});root.add(model);
   // 有註冊外部輪輻面素材時先載入；沒註冊會立刻 resolve(null)，不影響啟動速度
   await ensureWheelFace(THREE,GLTFLoader,MeshoptDecoder,wheelBuild.wheel).catch(()=>null);
@@ -1370,12 +1409,12 @@ function resetCar3D(event){
 function updateCar3DBuild(build){
   CAR3D_READY.then(({THREE})=>CAR3D_INSTANCES.forEach(x=>{
     if(x.dead||!x.car)return;
-    const dropF=Math.max(0,+build.dropF||+build.drop||0),dropR=Math.max(0,+build.dropR||+build.drop||0);
+    const stance=bodyStance(x.spec,build);
     x.car.traverse(o=>{
       if(o.userData.vehicleBody){
         const ride=o.userData.ride?car3DRideOffset(x.spec.id,build):0;
-        o.position.y=(o.userData.baseY||0)+ride-(dropF+dropR)/2000;
-        o.rotation.z=(dropF-dropR)/1000/Math.max(1,x.spec.wheelbase);
+        o.position.y=(o.userData.baseY||0)+ride+stance.dy;
+        o.rotation.z=stance.tilt;
       }
       if(!o.userData.carWheel)return;
       const {front,side}=o.userData,camber=+(front?build.camberF:build.camberR)||0,toe=+(front?build.toeF:build.toeR)||0;
