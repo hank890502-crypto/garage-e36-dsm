@@ -42,6 +42,20 @@ function normalizeCarData(c){
   if(aliases[c.build.wheel])c.build.wheel=aliases[c.build.wheel];
   const wheelSet=platOf(c)==='dsm2g'?ECL_WHEEL_STYLES:WHEEL_STYLES;
   if(!wheelSet.some(x=>x.id===c.build.wheel))c.build.wheel=platOf(c)==='dsm2g'?'ecl-oem':'st42';
+  const eclipse=platOf(c)==='dsm2g',paintSet=eclipse?ECL_PAINTS:PAINTS;
+  if(!paintSet.some(x=>x.id===c.build.paint)){
+    const eclipsePaintAlias={alpine:'ecl-white',schwarz:'ecl-black',cosmos:'ecl-black',arktis:'ecl-silver',nardo:'ecl-silver',
+      hellrot:'ecl-red',mugello:'ecl-maroon',boston:'ecl-green',britgrn:'ecl-green'};
+    c.build.paint=eclipse?(eclipsePaintAlias[c.build.paint]||'ecl-white'):'alpine';
+  }
+  const exactAero=aeroProductsOf(c).filter(x=>x.preview3d);
+  if(!exactAero.some(x=>x.id===c.build.aeroKit)){
+    Object.assign(c.build,{aeroKit:'stock',lip:false,skirt:false,diffuser:false,wing:'none',hood:false,wide:false,tips:'none'});
+  }else{
+    const aero=exactAero.find(x=>x.id===c.build.aeroKit);
+    ['lip','skirt','diffuser','wing'].forEach(k=>c.build[k]=aero[k]);
+  }
+  if(eclipse)c.build.shadow=false;
   return c;
 }
 

@@ -35,6 +35,18 @@ const ECL_BODIES = [
    warn:'Spyder 只有 FWD，沒有 AWD 的 GSX 版本。'},
 ];
 
+/* 1997 Mitsubishi exterior paint bulletin; kept separate from BMW paint data. */
+const ECL_PAINTS = [
+  {id:'ecl-white',  name:'Bright White',       code:'W12',hex:'#f1f3f2'},
+  {id:'ecl-black',  name:'Pyrenees Black',     code:'X08',hex:'#121519'},
+  {id:'ecl-silver', name:'Minden Silver',      code:'A52',hex:'#aeb5b8'},
+  {id:'ecl-red',    name:'Radiant Fire Red',   code:'R87',hex:'#c51f2b'},
+  {id:'ecl-carrera',name:'Carrera Red',        code:'R11',hex:'#ad1824'},
+  {id:'ecl-green',  name:'Monarch Green',      code:'G56',hex:'#17473d'},
+  {id:'ecl-copper', name:'Durango Copper',     code:'P01',hex:'#783b35'},
+  {id:'ecl-maroon', name:'Durban Maroon',      code:'R88',hex:'#652735'},
+];
+
 /* ---------------- 車型 ---------------- */
 const ECL_MODELS = [
   {id:'ecl-rs',      name:'RS',            eng:'420A',  yr:[1995,1998], bodies:['coupe2g'],  drive:'FWD', turbo:false},

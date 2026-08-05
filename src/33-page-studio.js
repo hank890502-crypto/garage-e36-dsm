@@ -2,10 +2,11 @@
    改裝 · 設計預覽 — 車輛是唯一主角，右欄一次只顯示一個部位
    ========================================================================== */
 let AB = false, ABPOS = 50, DPART = null;
+const paintsOf = c => platOf(c)==='dsm2g'?ECL_PAINTS:PAINTS;
 
 const DPARTS = [
-  {id:'paint',  name:'車身顏色', ic:'paint',  val:b=>PAINTS.find(p=>p.id===b.paint)?.name},
-  {id:'wheel',  name:'輪圈',     ic:'disc',   val:b=>wheelStylesOf(car()).find(w=>w.id===b.wheel)?.name},
+  {id:'paint',  name:'車身顏色', ic:'paint',  val:b=>car()?.bodyId==='sedan'?'來源模型原色':paintsOf(car()).find(p=>p.id===b.paint)?.name},
+  {id:'wheel',  name:'輪圈',     ic:'disc',   val:b=>car()?.bodyId==='sedan'?'來源模型輪圈':wheelStylesOf(car()).find(w=>w.id===b.wheel)?.name},
   {id:'tire',   name:'輪胎與尺寸',ic:'target',val:b=>TIRE_PRODUCTS.find(x=>x.id===b.tireProduct)?.name},
   {id:'drop',   name:'懸吊與車高',ic:'arrows', val:b=>SUSPENSION_PRODUCTS.find(x=>x.id===b.suspension)?.name},
   {id:'brake',  name:'煞車系統', ic:'disc',   val:b=>BRAKE_PRODUCTS.find(x=>x.id===b.brakeKit)?.name},
@@ -18,11 +19,11 @@ function pgDesign(){
   const c = car();
   if(!c) return needCar('設計預覽需要先建立車輛 — 相容性會依你的年份、引擎與車身型式計算');
   if(!c.bodyId || !hasCar3D(c.bodyId)) return `<div class="card"><div class="empty">${ic('car',44)}
-    <p><b>還沒有選車身型式</b><br><span class="t-cap">設計預覽要知道是哪一種車身才畫得出來。
+    <p><b>${c.bodyId?'此車身暫無專用 3D 模型':'還沒有選車身型式'}</b><br><span class="t-cap">${c.bodyId?'為避免顯示由其他車型硬切出的錯誤外觀，目前不提供預覽。':'設計預覽要知道是哪一種車身才畫得出來。'}
     ${esc(platName(platOf(c)))} 目前有：${bodiesOf(platOf(c)).filter(x=>hasCar3D(x.id)).map(x=>esc(x.name)).join('、')}</span></p>
-    <button class="btn pri" onclick="editCar('${c.id}')">去選車身型式</button></div></div>`;
+    <button class="btn pri" onclick="editCar('${c.id}')">${c.bodyId?'編輯車輛':'去選車身型式'}</button></div></div>`;
   const b = c.build;
-  const stock = {...blankCar().build,paint:b.paint};
+  const stock = {...blankCar().build,paint:b.paint,wheel:platOf(c)==='dsm2g'?'ecl-oem':'st42'};
   const wc = wheelCheck(c, {size:b.size, width:estWidth(b), et:estET(b), tireW:b.tireW, tireAR:b.tireAR});
 
   return `
@@ -70,7 +71,7 @@ function pgDesign(){
   </div>
 
   <div class="note" style="margin-top:var(--s3)">
-    <b>這是依原廠尺寸校正的可互動 3D 外觀預覽。</b> E36 各車身使用獨立授權網格；輪圈、車高、外傾角與束角會直接反映在預覽中。這不是原廠 CAD，安裝前仍須實車量測。
+    <b>這是依原廠尺寸校正的可互動 3D 外觀預覽。</b> 只有可獨立拆件的車身才會顯示輪圈、車高、外傾角與束角變化；合併網格會保留來源模型原狀。這不是原廠 CAD，安裝前仍須實車量測。
   </div>`;
 }
 
@@ -82,25 +83,25 @@ function partPanel(b, c){
   let body = '';
 
   if(DPART==='paint'){
-    const p = PAINTS.find(x=>x.id===b.paint)||PAINTS[0];
+    const palette=paintsOf(c),p=palette.find(x=>x.id===b.paint)||palette[0];
     body = `<div style="padding-top:var(--s2)">
-      <div class="swx">${PAINTS.map(x=>`<span class="sw ${b.paint===x.id?'on':''}" style="background:${x.hex}"
+      ${c.bodyId==='sedan'?`<div class="note y">這個 Sedan 來源將車漆、玻璃與輪圈合併在同一材質，為了避免整車與玻璃一起被染色，3D 保留來源模型原色。</div>`:`<div class="swx">${palette.map(x=>`<span class="sw ${b.paint===x.id?'on':''}" style="background:${x.hex}"
         title="${esc(x.name)}" onclick="setB('paint','${x.id}')"></span>`).join('')}</div>
       <div class="kv" style="margin-top:var(--s2)"><span>目前</span><b>${esc(p.name)}</b></div>
-      <div class="kv"><span>色號</span><b>${esc(p.code)}</b></div>
-      <label class="chk"><input type="checkbox" ${b.shadow?'checked':''} onchange="setB('shadow',this.checked)">
-        <span>Shadowline 黑窗框</span></label>
+      <div class="kv"><span>色號</span><b>${esc(p.code)}</b></div>`}
+      ${platOf(c)==='e36'?`<label class="chk"><input type="checkbox" ${b.shadow?'checked':''} onchange="setB('shadow',this.checked)">
+        <span>Shadowline 黑窗框</span></label>`:''}
       <div class="hint">改色需辦變更登記並換行照，代檢廠可在定期檢驗時一併辦理。</div></div>`;
   }
   if(DPART==='wheel'){
-    body = `<div style="padding-top:var(--s2)">
+    body = c.bodyId==='sedan'?`<div style="padding-top:var(--s2)"><div class="note y">Sedan 輪圈與車身是合併網格，3D 保留來源輪圈，不再疊加第二組輪胎。款式與尺寸仍可在方案中記錄。</div></div>`:`<div style="padding-top:var(--s2)">
       <div class="product-grid">${wheelStylesOf(car()).map(w=>productOption(w,b.wheel,'wheel',w.img
         ?`<img src="${w.img}" alt="${esc(w.brand+' '+w.name)}" loading="lazy" referrerpolicy="no-referrer">`
         :wheelThumb(w.id,b.finish))).join('')}</div>
       <div class="t-cap" style="margin-top:var(--s3);margin-bottom:6px">輪圈顏色</div>
       <div class="swx">${WHEEL_FINISHES.map(f=>`<span class="sw ${b.finish===f.id?'on':''}" style="background:${f.face}"
         title="${esc(f.name)}" onclick="setB('finish','${f.id}')"></span>`).join('')}</div>
-      <div class="hint">品牌款式使用官方商品圖核對，3D 依實際輻條數、雙輻、深唇與凹面結構重建。</div></div>`;
+      <div class="hint">官方商品圖用來核對款式；3D 輪圈是依輻條數與凹面特徵建立的比例預覽，不冒充原廠 CAD。</div></div>`;
   }
   if(DPART==='tire'){
     const od = tireOD({w:b.tireW,ar:b.tireAR,rim:b.size});
@@ -138,16 +139,13 @@ function partPanel(b, c){
       <div class="hint">產品 VLT 與畫面深淺分開顯示；玻璃角度、環境光與螢幕亮度都會影響視覺結果。</div></div>`;
   }
   if(DPART==='aero'){
+    const aero=aeroProductsOf(c),exact=aero.filter(x=>x.preview3d);
     body = `<div style="padding-top:var(--s1)">
-      <div class="product-grid compact">${aeroProductsOf(c).map(x=>productOption(x,b.aeroKit,'aeroKit')).join('')}</div>
-      ${chk('lip','前下巴')}${chk('skirt','側裙')}${chk('diffuser','後下擾流')}
-      ${chk('hood','引擎蓋散熱孔')}${chk('wide','寬體暴龜','台灣不可行')}
-      <div class="t-cap" style="margin-top:var(--s3);margin-bottom:6px">尾翼</div>
-      <div class="seg">${[['none','無'],['duck','鴨尾'],['gt','GT 尾翼']].map(([v,n])=>
-        `<button class="${b.wing===v?'on':''}" onclick="setB('wing','${v}')">${n}</button>`).join('')}</div>
-      <div class="t-cap" style="margin-top:var(--s2);margin-bottom:6px">排氣尾管</div>
-      <div class="seg">${[['none','無'],['single','單出'],['dual','雙出'],['quad','四出']].map(([v,n])=>
-        `<button class="${b.tips===v?'on':''}" onclick="setB('tips','${v}')">${n}</button>`).join('')}</div></div>`;
+      <div class="product-grid compact">${aero.map(x=>productOption(x,b.aeroKit,'aeroKit')).join('')}</div>
+      <div class="note ${exact.length>1?'b':'y'}" style="margin-top:var(--s2)">${exact.length>1
+        ?'只有畫面中實際存在的車型專用網格可以切換，不再用通用平板零件取代真實套件。'
+        :'這個車身目前只開放原廠網格預覽。尚未取得專用 3D 零件的套件僅保留官方資料，不會硬套到車上。'}</div>
+      <div class="hint">尾翼、引擎蓋、寬體與排氣必須有這個車身的專用建模才會出現在 3D 預覽。</div></div>`;
   }
   if(DPART==='alignment') body = alignmentPanel(b);
   return head + body;
@@ -155,12 +153,13 @@ function partPanel(b, c){
 
 function productOption(item, current, key, media){
   const detail=item.cat||item.name,source=productSourceLink(item);
+  const disabled=key==='aeroKit'&&item.preview3d===false;
   const productMedia=media||(item.img?`<img src="${item.img}" alt="${esc(item.brand+' '+item.name)}" loading="lazy" referrerpolicy="no-referrer"
     onerror="this.remove()"><b class="product-fallback">${esc(item.brand)}</b>`:`<b>${esc(item.brand)}</b>`);
-  return `<div class="product-option ${current===item.id?'on':''}" role="button" tabindex="0"
-    onclick="setB('${key}','${item.id}')" onkeydown="if(event.key==='Enter')setB('${key}','${item.id}')">
+  return `<div class="product-option ${current===item.id?'on':''} ${disabled?'disabled':''}" role="button" tabindex="${disabled?-1:0}"
+    ${disabled?'aria-disabled="true"':`onclick="setB('${key}','${item.id}')" onkeydown="if(event.key==='Enter')setB('${key}','${item.id}')"`}>
     <div class="product-media">${productMedia}</div>
-    <div class="product-copy"><span>${esc(item.brand||'')}</span><b>${esc(item.name)}</b><small>${esc(detail)}</small></div>
+    <div class="product-copy"><span>${esc(item.brand||'')}</span><b>${esc(item.name)}</b><small>${disabled?'資料參考 · 尚無專用 3D':esc(detail)}</small></div>
     ${source?`<span onclick="event.stopPropagation()">${source}</span>`:''}
   </div>`;
 }
@@ -269,7 +268,8 @@ function applyAlignmentPreset(id){
 function resetBuild(){
   const c = car(); if(!c) return;
   const keep = c.build.paint;
-  c.build = blankCar().build; c.build.paint = keep;
+  c.build = blankCar().build;c.build.paint=keep;
+  if(platOf(c)==='dsm2g')c.build.wheel='ecl-oem';
   saveDB(); render(); toast('已回到原廠設定');
 }
 

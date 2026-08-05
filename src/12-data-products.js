@@ -1,6 +1,6 @@
 /* ==========================================================================
    實際改裝產品資料
-   商品圖片直接引用製造商官方網站，選取結果則由 3D 幾何即時重建。
+   商品圖片直接引用製造商官方網站。只有具備車型專用網格的項目才允許 3D 切換。
    ========================================================================== */
 const PRODUCT_SOURCES = {
   enkei_rpf1:'https://enkei.com/shop/wheels/racing/rpf1/',
@@ -45,18 +45,18 @@ const TINT_PRODUCTS = [
 ];
 
 const AERO_PRODUCTS = [
-  {id:'stock',brand:'OEM',name:'原廠車身',lip:false,skirt:false,diffuser:false,wing:'none'},
-  {id:'mtech',plat:'e36',brand:'BMW M',name:'E36 M3 空力套件',lip:true,skirt:true,diffuser:false,wing:'none',
+  {id:'stock',brand:'OEM',name:'原廠車身',preview3d:true,lip:false,skirt:false,diffuser:false,wing:'none'},
+  {id:'mtech',plat:'e36',bodies:['coupe','sedan'],brand:'BMW M',name:'E36 M3 空力套件',preview3d:false,lip:true,skirt:true,diffuser:false,wing:'none',
    img:'https://mediapool.bmwgroup.com/cache/P9/202504/P90597044/P90597044-e36-m3-lightweight-with-racing-version-front-2250px.jpg',src:'bmw_e36_m3'},
-  {id:'track',plat:'e36',brand:'BMW Motorsport',name:'M3 Lightweight GT',lip:true,skirt:true,diffuser:true,wing:'gt',
+  {id:'track',plat:'e36',bodies:['coupe'],brand:'BMW Motorsport',name:'M3 Lightweight GT',preview3d:false,lip:true,skirt:true,diffuser:true,wing:'gt',
    img:'https://mediapool.bmwgroup.com/cache/P9/202504/P90597044/P90597044-e36-m3-lightweight-with-racing-version-front-2250px.jpg',src:'bmw_e36_m3'},
-  {id:'gsx-oem',plat:'dsm2g',brand:'Mitsubishi',name:'GSX 原廠高尾翼',lip:false,skirt:true,diffuser:false,wing:'duck'},
-  {id:'duraflex-b2',plat:'dsm2g',brand:'Duraflex',name:'B-2 四件式套件',lip:true,skirt:true,diffuser:true,wing:'none',src:'eclipse_duraflex'},
+  {id:'gsx-oem',plat:'dsm2g',bodies:['coupe2g'],brand:'Mitsubishi',name:'GSX 原廠高尾翼',preview3d:true,lip:false,skirt:false,diffuser:false,wing:'oem-high'},
+  {id:'duraflex-b2',plat:'dsm2g',bodies:['coupe2g'],brand:'Duraflex',name:'B-2 四件式套件',preview3d:false,lip:true,skirt:true,diffuser:true,wing:'none',src:'eclipse_duraflex'},
 ];
 
 function aeroProductsOf(c){
   const plat=platOf(c);
-  return AERO_PRODUCTS.filter(x=>!x.plat||x.plat===plat);
+  return AERO_PRODUCTS.filter(x=>(!x.plat||x.plat===plat)&&(!x.bodies||x.bodies.includes(c?.bodyId)));
 }
 
 function productSourceLink(item){

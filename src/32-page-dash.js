@@ -112,7 +112,7 @@ function heroArt(c, uid){
     <div style="font-size:13px;letter-spacing:0;color:var(--tx3)">${esc(platName(platOf(c)))}</div>
     <div style="font-size:26px;font-weight:600;letter-spacing:0">${esc(m?m.name:'—')}${m&&m.drive?` <span style="color:var(--tx2);font-size:18px">${m.drive}</span>`:''}</div>
     <div class="t-cap">${esc([c.year, b&&b.name, e&&e.name].filter(Boolean).join(' · '))}</div>
-    <div class="t-cap" style="color:var(--orange)">${c.bodyId?'這個車身型式還沒有合成素材':'還沒有選車身型式，選了才畫得出車'}</div>
+    <div class="t-cap" style="color:var(--orange)">${c.bodyId?'這個車身型式暫無專用 3D 模型':'還沒有選車身型式，選了才畫得出車'}</div>
     ${!c.bodyId?`<button class="btn sm" style="margin-top:8px" onclick="editCar('${c.id}')">去選車身型式</button>`:''}
   </div>`;
 }
@@ -381,7 +381,10 @@ function setCarPlat(p){
   const c = window.__editCar; if(!c || c.plat===p) return;
   c.plat = p; c.modelId=''; c.bodyId=''; c.trans='';
   c.year = p==='dsm2g' ? 1997 : 1996;
-  if(p==='dsm2g'){ c.wheelW = 6; c.wheelET = 46; c.tire = c.tire||'205/55R16'; }
+  if(p==='dsm2g'){
+    c.wheelW=6;c.wheelET=46;c.tire='205/55R16';
+    Object.assign(c.build,{paint:'ecl-white',wheel:'ecl-oem',aeroKit:'stock',lip:false,skirt:false,diffuser:false,wing:'none',shadow:false});
+  }else Object.assign(c.build,{paint:'alpine',wheel:'st42',aeroKit:'stock',lip:false,skirt:false,diffuser:false,wing:'none'});
   PLATFORMS.forEach(x=>{ const b=$('#pl_'+x.id); if(b) b.classList.toggle('on', x.id===p); });
   $('#platFields').innerHTML = carPlatFields(c);
 }
@@ -428,6 +431,7 @@ function saveCar(id, isNew){
     vin:g('f_vin').trim().toUpperCase(), km:+g('f_km')||0,
     wheelW:+g('f_ww')||7, wheelET:+g('f_et')||47, tire:g('f_tire')||'205/60R15', notes:g('f_notes'),
   });
+  normalizeCarData(c);
   if(isNew){ DB.cars.push(c); DB.cur = c.id; }
   saveDB(); closeModal(); render(); toast(isNew?'已建立車輛':'已儲存');
 }

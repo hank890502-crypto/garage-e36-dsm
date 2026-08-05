@@ -2,23 +2,34 @@
    Vehicle 3D preview
    Photo-referenced E36 / Eclipse geometry with independent modification parts.
    ========================================================================== */
-const CAR3D_BODY_IDS = new Set(['coupe','sedan','touring','compact','cabrio','coupe2g','spyder2g']);
+const CAR3D_BODY_IDS = new Set(['coupe','sedan','touring','compact','cabrio','coupe2g']);
 const CAR3D_INSTANCES = [];
-const CAR3D_DEFAULT_VIEW = {offset:[-4.95,2.15,4.35], target:[0,.65,0]};
 const CAR3D_MODEL_URLS = {
-  coupe:'./assets/models/e36-coupe/model.glb',
+  coupe:'./assets/models/e36/scene.gltf',
   sedan:'./assets/models/e36-sedan/model.glb',
   compact:'./assets/models/e36-compact/model.glb',
   touring:'./assets/models/e36-touring/model.glb',
   cabrio:'./assets/models/e36-cabrio/model.glb',
   coupe2g:'./assets/models/eclipse/scene.gltf',
-  spyder2g:'./assets/models/eclipse/scene.gltf',
 };
-const CAR3D_SCENERY_NODES={coupe:['Object_18']};
-const CAR3D_WHEEL_NODES={coupe:['Object_6','Object_7','Object_8']};
+/*
+ * Every donor model uses a different origin and wheel layout. These values are
+ * measured from the source meshes after normalization; they must not be shared
+ * between body styles.
+ */
+const CAR3D_BODY_CONFIG = {
+  coupe:{wheelMode:'replace',frontX:-1.486,rearX:1.263,frontY:.300,rearY:.300,frontTrack:.752,rearTrack:.752,
+    hideNodes:['rim','rim001','rim002','rim003','Cylinder002','Cylinder004','Cylinder005','Cylinder006']},
+  sedan:{wheelMode:'native',hideNodes:['Object_5']},
+  compact:{wheelMode:'replace',flipX:true,yOffset:-.950,viewDirection:[.68,.28,.68],
+    frontX:1.450,rearX:-1.260,frontY:.300,rearY:.300,frontTrack:.720,rearTrack:.735},
+  touring:{wheelMode:'replace',frontX:-1.472,rearX:1.229,frontY:.311,rearY:.311,frontTrack:.735,rearTrack:.745},
+  cabrio:{wheelMode:'replace',frontX:-1.350,rearX:1.256,frontY:.300,rearY:.314,frontTrack:.740,rearTrack:.755},
+  coupe2g:{wheelMode:'replace',frontX:-1.305,rearX:1.205,frontY:.315,rearY:.315,frontTrack:.650,rearTrack:.650},
+};
 const CAR3D_REVERSED_BODIES=new Set(['compact']);
 const CAR3D_MODEL_CACHE = new Map();
-let CAR3D_VIEW = structuredClone(CAR3D_DEFAULT_VIEW);
+const CAR3D_VIEWS = new Map();
 let CAR3D_SYNCING = false;
 
 const CAR3D_READY = window.CAR3D_LIB
@@ -54,6 +65,19 @@ function bodySpec(bodyId){
     eclipse:bodyId.endsWith('2g'),
     open:bodyId==='cabrio'||bodyId==='spyder2g',
   };
+}
+
+function car3DBodyConfig(bodyId){
+  return CAR3D_BODY_CONFIG[bodyId]||{wheelMode:'native'};
+}
+
+function car3DPaints(spec){
+  return spec.eclipse&&typeof ECL_PAINTS!=='undefined'?ECL_PAINTS:PAINTS;
+}
+
+function car3DPaint(spec, build){
+  const list=car3DPaints(spec);
+  return list.find(x=>x.id===build.paint)||list[0];
 }
 
 function lowerBodyPoints(spec){
@@ -303,14 +327,19 @@ function makeWheel(THREE, build, tireR, tireW, side){
 }
 
 function addWheels(THREE, root, spec, build, tireR){
+  const config=car3DBodyConfig(spec.id);
+  if(config.wheelMode!=='replace') return;
   const tireW=Math.max(.17,Math.min(.31,(+build.tireW||225)/1000));
-  [-spec.wheelbase/2,spec.wheelbase/2].forEach((x,axle)=>[-1,1].forEach(side=>{
-    const front=axle===0,track=spec.width/2-tireW*.52+(+(front?build.trackF:build.trackR)||0)/2000;
+  [{front:true,x:config.frontX,y:config.frontY,track:config.frontTrack},
+   {front:false,x:config.rearX,y:config.rearY,track:config.rearTrack}].forEach(axle=>[-1,1].forEach(side=>{
+    const {front,x,y}=axle;
+    const baseTrack=axle.track||spec.width/2-tireW*.52;
+    const track=baseTrack+(+(front?build.trackF:build.trackR)||0)/2000;
     const camber=+(front?build.camberF:build.camberR)||0,toe=+(front?build.toeF:build.toeR)||0;
-    const w=makeWheel(THREE,build,tireR,tireW,side);w.position.set(x,tireR,side*track);
+    const w=makeWheel(THREE,build,tireR,tireW,side);w.position.set(x,y||tireR,side*track);
     w.rotation.order='YXZ';w.rotation.x=side*THREE.MathUtils.degToRad(camber);
     w.rotation.y=side*THREE.MathUtils.degToRad(toe);
-    Object.assign(w.userData,{carWheel:true,front,side,baseTrack:spec.width/2-tireW*.52});root.add(w);
+    Object.assign(w.userData,{carWheel:true,front,side,baseTrack,baseY:y||tireR});root.add(w);
   }));
 }
 
@@ -504,7 +533,7 @@ function shellGeometry(THREE, sections, options={}){
 
 function buildProceduralCarModel(THREE, spec, build){
   const root=new THREE.Group(), body=new THREE.Group(), tireR=car3DTireRadius(build);
-  const paintDef=PAINTS.find(x=>x.id===build.paint)||PAINTS[0], paint=physicalPaint(THREE,paintDef.hex);
+  const paintDef=car3DPaint(spec,build), paint=physicalPaint(THREE,paintDef.hex);
   const archR=tireR+(build.wide?.10:.075),arches=[-spec.wheelbase/2,spec.wheelbase/2].map(x=>({x,r:archR,cy:tireR}));
   const bodySections=smoothSections(THREE,referenceShellKnots(spec),54);
   mesh(THREE,body,shellGeometry(THREE,bodySections,{across:28,shoulderPower:.58,arches}),paint);
@@ -547,20 +576,21 @@ function cloneCar3DSource(source){
   return clone;
 }
 
-function convertEclipseToSpyder(model){
-  ['eclipse_generic_leather_white01-material','eclipse_body-material','eclipse_black-material'].forEach(name=>{
-    const g=model.getObjectByName(name)?.geometry,pos=g?.attributes?.position;if(!pos)return;
-    const source=g.index?Array.from(g.index.array):Array.from({length:pos.count},(_,i)=>i),kept=[];
+function removeImportedGround(THREE,model){
+  model.updateMatrixWorld(true);
+  const sceneBox=importedCarBox(THREE,model),size=sceneBox.getSize(new THREE.Vector3()),cutY=sceneBox.min.y+size.y*.18;
+  const a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3();
+  model.traverse(o=>{
+    if(!o.isMesh||!o.geometry?.attributes?.position)return;
+    const g=o.geometry,pos=g.attributes.position,source=g.index?Array.from(g.index.array):Array.from({length:pos.count},(_,i)=>i),kept=[];
     for(let i=0;i<source.length;i+=3){
-      const a=source[i],b=source[i+1],c=source[i+2];
-      const height=(pos.getZ(a)+pos.getZ(b)+pos.getZ(c))/3;
-      const length=(pos.getY(a)+pos.getY(b)+pos.getY(c))/3;
-      if(!(height>.92&&length>-.78&&length<1.68))kept.push(a,b,c);
+      const ai=source[i],bi=source[i+1],ci=source[i+2];
+      a.fromBufferAttribute(pos,ai).applyMatrix4(o.matrixWorld);b.fromBufferAttribute(pos,bi).applyMatrix4(o.matrixWorld);c.fromBufferAttribute(pos,ci).applyMatrix4(o.matrixWorld);
+      const low=(a.y+b.y+c.y)/3<cutY;
+      if(!low)kept.push(ai,bi,ci);
     }
-    g.setIndex(kept);g.computeBoundingBox();g.computeBoundingSphere();
+    if(kept.length!==source.length){g.setIndex(kept);g.computeBoundingBox();g.computeBoundingSphere();g.computeVertexNormals();}
   });
-  ['eclipse_doorglass_L','eclipse_doorglass_R','eclipse_sideglass_L','eclipse_sideglass_R','eclipse_backlight','eclipse_steer']
-    .forEach(name=>{const x=model.getObjectByName(name);if(x)x.visible=false;});
 }
 
 function importedCarBox(THREE,model){
@@ -574,28 +604,39 @@ function importedCarBox(THREE,model){
   return found?box:new THREE.Box3().setFromObject(model);
 }
 
+function rotateImportedWorldY(THREE,model,angle){
+  model.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),angle));
+  model.updateMatrixWorld(true);
+}
+
 function normalizeImportedCar(THREE, model, spec){
+  const config=car3DBodyConfig(spec.id);
+  if(config.flipX){
+    model.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),Math.PI));
+    model.updateMatrixWorld(true);
+  }
   model.updateMatrixWorld(true);
   let box=importedCarBox(THREE,model),size=box.getSize(new THREE.Vector3());
   if(size.z>size.x){model.rotation.y=-Math.PI/2;model.updateMatrixWorld(true);box=importedCarBox(THREE,model);size=box.getSize(size);}
   const frontNode=model.getObjectByName(spec.eclipse?'eclipse_bumper_F':'heads');
   if(frontNode){
     const carCenter=box.getCenter(new THREE.Vector3()),frontCenter=new THREE.Box3().setFromObject(frontNode).getCenter(new THREE.Vector3());
-    if(frontCenter.x>carCenter.x){model.rotateY(Math.PI);model.updateMatrixWorld(true);box=importedCarBox(THREE,model);size=box.getSize(size);}
+    if(frontCenter.x>carCenter.x){rotateImportedWorldY(THREE,model,Math.PI);box=importedCarBox(THREE,model);size=box.getSize(size);}
   }
   const scale=spec.length/Math.max(.01,size.x);model.scale.multiplyScalar(scale);model.updateMatrixWorld(true);
   box=importedCarBox(THREE,model);
   const center=box.getCenter(new THREE.Vector3());
   model.position.x-=center.x;model.position.z-=center.z;model.updateMatrixWorld(true);
-  if(CAR3D_REVERSED_BODIES.has(spec.id)){model.rotateY(Math.PI);model.updateMatrixWorld(true);}
+  if(CAR3D_REVERSED_BODIES.has(spec.id))rotateImportedWorldY(THREE,model,Math.PI);
   const floorNode=spec.eclipse?model.getObjectByName('eclipse_body-material'):null;
   const floorBox=floorNode?new THREE.Box3().setFromObject(floorNode):importedCarBox(THREE,model);
   model.position.y-=floorBox.min.y;
+  model.position.y+=config.yOffset||0;
   model.updateMatrixWorld(true);
 }
 
 function styleImportedCar(THREE, model, spec, build){
-  const paintDef=PAINTS.find(x=>x.id===build.paint)||PAINTS[0],paint=physicalPaint(THREE,paintDef.hex);
+  const paintDef=car3DPaint(spec,build),paint=physicalPaint(THREE,paintDef.hex);
   const fin=WHEEL_FINISHES.find(x=>x.id===build.finish)||WHEEL_FINISHES[0];
   model.traverse(o=>{
     if(!o.isMesh) return;
@@ -603,20 +644,21 @@ function styleImportedCar(THREE, model, spec, build){
     const wasArray=Array.isArray(o.material),materials=wasArray?o.material:[o.material];
     const styled=materials.map(m=>{
       const name=(m.name||'').toLowerCase();
-      if(/car ?paint|carpaint|bmwe36_paint/.test(name)||name.includes('carpaint_flakes_blue')||name==='eclipse_body'){
+      if(/car[\s_.-]*paint|bmwe36_(paint|leibi)/.test(name)||name.includes('carpaint_flakes_blue')||name==='eclipse_body'
+        ||spec.id==='cabrio'&&name.includes('bmwe36_signal_l')){
         const p=paint.clone();p.name=m.name;return p;
       }
       if(spec.id==='sedan'&&name==='material_0'){
-        const r=m.clone();r.color.set(paintDef.hex);r.metalness=.25;r.roughness=.34;return r;
+        const r=m.clone();r.color.set(0xffffff);return r;
       }
       if(name.includes('carpaint_flakes_silver')||name.includes('eclipse95_wheel')){
         const r=m.clone();r.color.set(fin.face);r.metalness=.82;r.roughness=.18;return r;
       }
       const r=m.clone();
-      if(name.includes('glass')){
+      if(name.includes('glass')||name.includes('window')){
         const tint=Math.max(0,Math.min(90,+build.tint||0));
-        r.map=null;r.alphaMap=null;r.color.set(tint>50?0x080d0f:0x111a1d);r.transparent=true;
-        r.opacity=spec.eclipse?(tint>50?.88:.78):(tint>50?.97:.92);r.depthWrite=!spec.eclipse;r.metalness=.08;r.roughness=.08;
+        r.map=null;r.alphaMap=null;r.color.set(tint>55?0x11191c:tint>20?0x496a70:0x91afb5);r.transparent=true;
+        r.opacity=Math.min(.84,.58+tint*.003);r.depthWrite=false;r.metalness=.04;r.roughness=.12;r.side=THREE.DoubleSide;
       }
       if(name.includes('leather')||name.includes('cloth')||name.includes('fabric')||name.includes('carpet')){
         r.color.set(0x202321);r.metalness=0;r.roughness=.78;
@@ -631,12 +673,16 @@ function styleImportedCar(THREE, model, spec, build){
 function setImportedVisibility(model, spec, build){
   const set=(name,visible)=>{const x=model.getObjectByName(name);if(x)x.visible=visible;};
   if(spec.eclipse){
-    set('wheel',false);set('eclipse_exhaust',false);
-    const kit=!!(build.lip||build.diffuser);
+    set('wheel',false);set('eclipse_tubs',false);set('eclipse_exhaust',false);set('eclipse_exhaust_fartcan',false);
+    const kit=build.aeroKit==='duraflex-b2';
     set('eclipse_bumper_F',!kit);set('eclipse_bumper_R',!kit);
     set('eclipse_bumperkit_F',kit);set('eclipse_bumperkit_R',kit);
-    set('eclipse_spoiler',build.wing==='duck');set('eclipse_spoiler_2',build.wing==='gt');
+    set('eclipse_sideskirts',!kit);set('eclipse_sideskirts_kit',kit);
+    set('eclipse_spoiler',false);set('eclipse_spoiler_2',build.aeroKit==='gsx-oem');
   }else{
+    const config=car3DBodyConfig(spec.id);
+    (config.hideNodes||[]).forEach(name=>set(name,false));
+    if(config.wheelMode!=='replace') return;
     model.traverse(o=>{
       const name=(o.name||'').toLowerCase(),mats=o.material?(Array.isArray(o.material)?o.material:[o.material]):[];
       const namedWheel=/^(fl|fr|rl|rr)_(tire|rim)$/.test(name)||/^rim(\.\d+)?$|^tire(\.\d+)?$/.test(name);
@@ -650,32 +696,45 @@ function setImportedVisibility(model, spec, build){
         o.geometry.groups=o.geometry.groups.filter(group=>!hidden.has(group.materialIndex));
       }
     });
-    (CAR3D_WHEEL_NODES[spec.id]||[]).forEach(name=>set(name,false));
   }
 }
 
 async function buildImportedCarModel(THREE, GLTFLoader, MeshoptDecoder, spec, build){
   const source=await loadCar3DSource(GLTFLoader,MeshoptDecoder,spec),model=cloneCar3DSource(source),root=new THREE.Group();
-  if(spec.id==='spyder2g')convertEclipseToSpyder(model);
-  (CAR3D_SCENERY_NODES[spec.id]||[]).forEach(name=>{const x=model.getObjectByName(name);if(x)x.visible=false;});
+  root.userData.viewDirection=car3DBodyConfig(spec.id).viewDirection;
+  if(spec.id==='sedan')removeImportedGround(THREE,model);
   normalizeImportedCar(THREE,model,spec);
   const paint=styleImportedCar(THREE,model,spec,build);setImportedVisibility(model,spec,build);
   const dropF=Math.max(0,+build.dropF||+build.drop||0),dropR=Math.max(0,+build.dropR||+build.drop||0);
   const baseY=model.position.y;model.position.y-=(dropF+dropR)/2000;model.rotation.z=(dropF-dropR)/1000/Math.max(1,spec.wheelbase);
   Object.assign(model.userData,{vehicleBody:true,baseY});root.add(model);
   const tireR=car3DTireRadius(build),wheelBuild={...build,tireW:Math.min(+build.tireW||225,spec.eclipse?225:235)};
-  addWheels(THREE,root,spec,wheelBuild,tireR);addExhaust(THREE,root,spec,build);
-  if(spec.eclipse){
-    const partial={...build,lip:false,diffuser:false,wing:'none'};addAero(THREE,root,spec,partial,paint);
-  }else addAero(THREE,root,spec,build,paint);
+  addWheels(THREE,root,spec,wheelBuild,tireR);
   return root;
+}
+
+function framedCar3DView(THREE, car, aspect=2){
+  const box=new THREE.Box3().setFromObject(car),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3());
+  const target=new THREE.Vector3(center.x,box.min.y+size.y*.46,center.z);
+  const vfov=THREE.MathUtils.degToRad(31),hfov=2*Math.atan(Math.tan(vfov/2)*Math.max(.75,aspect));
+  const projectedWidth=size.x*.70+size.z*.72;
+  const distance=Math.max(size.y/(2*Math.tan(vfov/2)),projectedWidth/(2*Math.tan(hfov/2)))*1.22;
+  const dir=new THREE.Vector3(...(car.userData.viewDirection||[-.68,.28,.68])).normalize();
+  return {target:target.toArray(),offset:dir.multiplyScalar(Math.max(5.30,distance)).toArray()};
+}
+
+function applyCar3DView(instance, view){
+  instance.camera.position.fromArray(view.target).add(new instance.THREE.Vector3().fromArray(view.offset));
+  if(instance.controls){
+    instance.controls.target.fromArray(view.target);instance.controls.update();
+  }else instance.camera.lookAt(...view.target);
 }
 
 async function createScene(root, config, THREE, OrbitControls, GLTFLoader, MeshoptDecoder){
   const spec=bodySpec(config.bodyId), dark=document.documentElement.dataset.theme==='dark';
   const scene=new THREE.Scene();scene.background=new THREE.Color(dark?0x101511:0xdfe4de);scene.fog=new THREE.Fog(scene.background,8,16);
   const camera=new THREE.PerspectiveCamera(31,1,.1,50);
-  camera.position.set(...CAR3D_VIEW.offset);
+  camera.position.set(-4.2,1.9,4.2);
   const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,preserveDrawingBuffer:true,powerPreference:'high-performance'});
   renderer.setPixelRatio(Math.min(2,devicePixelRatio||1));renderer.shadowMap.enabled=true;
   renderer.shadowMap.type=THREE.PCFShadowMap;renderer.outputColorSpace=THREE.SRGBColorSpace;
@@ -702,14 +761,23 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
   }
   scene.add(car);
 
+  const initialRect=root.getBoundingClientRect();
+  camera.aspect=initialRect.width>2&&initialRect.height>2?initialRect.width/initialRect.height:2;
+  camera.updateProjectionMatrix();
+  const initialView=CAR3D_VIEWS.get(spec.id)||framedCar3DView(THREE,car,camera.aspect);
+  CAR3D_VIEWS.set(spec.id,initialView);
+
   let controls=null;
   if(config.interactive){
-    controls=new OrbitControls(camera,renderer.domElement);controls.target.set(...CAR3D_VIEW.target);
+    controls=new OrbitControls(camera,renderer.domElement);
     controls.enableDamping=true;controls.dampingFactor=.075;controls.enablePan=false;
-    controls.minDistance=4.4;controls.maxDistance=9.5;controls.minPolarAngle=.72;controls.maxPolarAngle=1.48;
-  }else camera.lookAt(...CAR3D_VIEW.target);
+    const initialDistance=new THREE.Vector3().fromArray(initialView.offset).length();
+    controls.minDistance=initialDistance*.72;controls.maxDistance=initialDistance*1.75;
+    controls.minPolarAngle=.72;controls.maxPolarAngle=1.48;
+  }
 
-  const instance={root,scene,camera,renderer,controls,spec,car,dead:false,observer:null};CAR3D_INSTANCES.push(instance);
+  const instance={root,scene,camera,renderer,controls,spec,car,THREE,dead:false,observer:null};CAR3D_INSTANCES.push(instance);
+  applyCar3DView(instance,initialView);
   if(controls){
     controls.addEventListener('change',()=>syncCar3DView(instance));controls.update();
   }
@@ -729,21 +797,23 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
 function syncCar3DView(source){
   if(CAR3D_SYNCING||!source.controls) return;
   const off=source.camera.position.clone().sub(source.controls.target);
-  CAR3D_VIEW={offset:off.toArray(),target:source.controls.target.toArray()};CAR3D_SYNCING=true;
+  const view={offset:off.toArray(),target:source.controls.target.toArray()};
+  CAR3D_VIEWS.set(source.spec.id,view);CAR3D_SYNCING=true;
   CAR3D_INSTANCES.forEach(x=>{
-    if(x===source||x.dead||!x.controls) return;
-    x.controls.target.set(...CAR3D_VIEW.target);x.camera.position.copy(x.controls.target).add(off);x.controls.update();
+    if(x===source||x.dead||!x.controls||x.spec.id!==source.spec.id) return;
+    x.controls.target.set(...view.target);x.camera.position.copy(x.controls.target).add(off);x.controls.update();
   });
   CAR3D_SYNCING=false;
 }
 
 function resetCar3D(event){
-  event.preventDefault();event.stopPropagation();CAR3D_VIEW=structuredClone(CAR3D_DEFAULT_VIEW);CAR3D_SYNCING=true;
+  event.preventDefault();event.stopPropagation();
+  const source=CAR3D_INSTANCES.find(x=>x.root===event.currentTarget.closest('.car3d'));
+  if(!source)return;
+  const view=framedCar3DView(source.THREE,source.car,source.camera.aspect);CAR3D_VIEWS.set(source.spec.id,view);CAR3D_SYNCING=true;
   CAR3D_INSTANCES.forEach(x=>{
-    if(x.dead) return;
-    x.camera.position.set(...CAR3D_VIEW.offset);
-    if(x.controls){x.controls.target.set(...CAR3D_VIEW.target);x.controls.update();}
-    else x.camera.lookAt(...CAR3D_VIEW.target);
+    if(x.dead||x.spec.id!==source.spec.id) return;
+    applyCar3DView(x,view);
   });
   CAR3D_SYNCING=false;
 }
