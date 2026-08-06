@@ -1387,15 +1387,22 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
     env:{hemi,key,rim,warm,grid,floor,gridStep:.5,defaultBg:scene.background.getHex()},
     build:renderBuild,lamps:collectCar3DLamps(car),wheels:[],beams:null,loop:!!controls,_maxDist:instanceMaxDist,
     lightState:car3DLightState(renderBuild)};
+  /* ★ 只有設計預覽頁（#stage 之內）的場景可以被駕駛 ★
+     總覽與「我的車」也有 3D 預覽，那些是用來看車的，不該被駕駛狀態影響。
+     先前這段沒有判斷，所以開出去之後切到總覽，車就跑到畫面外了。
+     ★ 這一行必須在 setRoadScene 之前 ★ 否則場景重建時讀到 undefined，
+     駕駛模式中換零件就會整條路消失。 */
+  instance.drivable = !!(root.closest && root.closest('#stage'));
   CAR3D_INSTANCES.push(instance);
   car.traverse(o=>{if(o.userData.carWheel)instance.wheels.push(o);});
   instance.nightApplied=instance.lightState.night;
   if(instance.lightState.night)applyCar3DNight(instance,true);
   applyCar3DLamps(instance);
-  if(CAR3D_DRIVE.on) setRoadScene(instance, true);
+  if(CAR3D_DRIVE.on && instance.drivable) setRoadScene(instance, true);
   applyCar3DView(instance,initialView);
+
   /* render() 重建場景後，若車不在原點，把視角平移過去，不然鏡頭會盯著空地 */
-  const simNow=CAR3D_DRIVE.sim;
+  const simNow = instance.drivable ? CAR3D_DRIVE.sim : null;
   if(simNow&&(simNow.x||simNow.z)){
     camera.position.x+=simNow.x;camera.position.z+=simNow.z;
     if(controls){controls.target.x+=simNow.x;controls.target.z+=simNow.z;}
@@ -1417,12 +1424,12 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
     renderer.setAnimationLoop(t=>{
       if(instance.dead)return;
       const dt=Math.min(.1,Math.max(.001,lastT?(t-lastT)/1000:.016));lastT=t;
-      if(CAR3D_DRIVE.on&&instance.car&&instance===CAR3D_INSTANCES.find(i=>!i.dead)){
-        stepCar3DDrive(instance,dt);
-      }else if(CAR3D_DRIVE.on&&instance.car&&CAR3D_DRIVE.sim){
-        applySimToScene(instance,CAR3D_DRIVE.sim,dt);   // 前後比較：第二個場景跟著同一份狀態
+      if(CAR3D_DRIVE.on&&instance.drivable&&instance.car){
+        const lead=CAR3D_INSTANCES.find(i=>!i.dead&&i.drivable);
+        if(instance===lead) stepCar3DDrive(instance,dt);
+        else if(CAR3D_DRIVE.sim) applySimToScene(instance,CAR3D_DRIVE.sim,dt); // 前後比較的第二個場景
+        if(CAR3D_DRIVE.follow) car3DFollowCam(instance,dt);
       }
-      if(CAR3D_DRIVE.on&&CAR3D_DRIVE.follow)car3DFollowCam(instance,dt);
       if(controls.enabled)controls.update();
       renderer.render(scene,camera);
     });
@@ -1433,6 +1440,13 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
 
 function syncCar3DView(source){
   if(CAR3D_SYNCING||!source.controls) return;
+  /* ★ 駕駛模式中不可以覆寫存下來的視角 ★
+     開車時鏡頭會跟著車一起平移（applySimToScene），那是暫時的狀態。
+     一旦寫回 CAR3D_VIEWS，之後總覽與「我的車」新建的預覽會沿用那個
+     一百多公尺外的鏡頭位置，畫面上就只剩一片空地 —— 車其實在原點，
+     是鏡頭跑掉了。退出駕駛模式時 resetCar3DDrive 會用這裡存的值還原，
+     所以這份資料必須保持乾淨。 */
+  if(CAR3D_DRIVE.on) return;
   const off=source.camera.position.clone().sub(source.controls.target);
   const view={offset:off.toArray(),target:source.controls.target.toArray()};
   CAR3D_VIEWS.set(source.spec.id,view);CAR3D_SYNCING=true;
@@ -1793,7 +1807,7 @@ function car3DFollowCam(x,dt){
 /* 道路場景：只在駕駛模式顯示。
    設計預覽的網格背景是刻意的（乾淨、看得清楚車），開起來才需要環境。 */
 function setRoadScene(x, on){
-  if(x.dead) return;
+  if(x.dead || !x.drivable) return;
   if(on && !x.road){
     const night = !!(x.lightState && x.lightState.night);
     x.road = buildRoadScene(x.THREE, x.scene, night);
@@ -1832,7 +1846,7 @@ function setCar3DDriveMode(on){
   CAR3D_DRIVE.padHandbrake=0;CAR3D_DRIVE.joySteer=0;CAR3D_DRIVE.joyThrottle=0;
   const S=ensureSim(CAR3D_INSTANCES.find(i=>!i.dead)?.build);
   if(on && S.gear===0) S.gear=1;
-  CAR3D_INSTANCES.forEach(x=>{ if(!x.dead) setRoadScene(x, CAR3D_DRIVE.on); });
+  CAR3D_INSTANCES.forEach(x=>{ if(!x.dead&&x.drivable) setRoadScene(x, CAR3D_DRIVE.on); });
   setCar3DFollow(CAR3D_DRIVE.follow);
 }
 function setCar3DFollow(f){
@@ -1847,7 +1861,7 @@ function setCar3DFollow(f){
 }
 function setCar3DVenue(v){
   CAR3D_DRIVE.venue = v;
-  CAR3D_INSTANCES.forEach(x=>{ if(!x.dead && x.road) x.road.setVenue(v); });
+  CAR3D_INSTANCES.forEach(x=>{ if(!x.dead && x.drivable && x.road) x.road.setVenue(v); });
   if(v==='drag') DragTimer.reset();
   if(v==='skid') DriftScore.reset();
   /* 換場地一律把車放回起點，不然會卡在場地外面 */
@@ -1868,6 +1882,7 @@ function resetCar3DDrive(){
   CAR3D_INSTANCES.forEach(x=>{
     if(x.dead||!x.car) return;
     x.car.position.set(0,0,0);x.car.rotation.y=0;x._lastX=0;x._lastZ=0;
+    x.wheels.forEach(w=>{w.rotation.y=0;});
     x.wheels.forEach(w=>{if(w.userData.spin)w.userData.spin.rotation.z=0;});
     if(x.env){
       x.env.grid.position.set(0,0,0);x.env.floor.position.set(0,.005,0);
@@ -1961,8 +1976,12 @@ function toggleCar3DMute(){ EngineAudio.toggleMute(); engineUIRefresh(); }
 
 /* 離開設計預覽頁自動熄火 */
 window.addEventListener('hashchange',()=>{
-  if(EngineAudio.running&&!String(location.hash).startsWith('#build/design')){
-    const S=CAR3D_DRIVE.sim; if(S) S.running=false;
+  if(String(location.hash).startsWith('#build/design')) return;
+  /* 離開設計預覽就退出駕駛模式並把車放回原點 ——
+     不然總覽與「我的車」的預覽會顯示一台歪在旁邊的車。 */
+  if(CAR3D_DRIVE.on){ CAR3D_DRIVE.on=false; resetCar3DDrive(); }
+  if(EngineAudio.running){
+    const S=CAR3D_DRIVE.sim; if(S){ S.running=false; S.starter=0; }
     EngineAudio.stop();
   }
 });

@@ -3730,7 +3730,7 @@ function createVehicleSim(build, spec){
       brakeNm: 2400, handbrakeNm: 850,
     },
     /* 引擎 */
-    rpm: 0, crank: 0, throttle: 0, running:false,
+    rpm: 0, crank: 0, throttle: 0, pedal: 0, running:false,
     starter: 0,
     fuelCut:false, cutTimer:0, misfire:0,
     boost: 0,
@@ -3776,14 +3776,30 @@ function engineTorque(S, dt){
   }
 
   const peak = cv.nm;
-  let t = peak*torqueFactor(cv, rpm)*S.throttle;
-  /* 怠速控制：轉速低於怠速時補扭力，避免熄火 */
+  /* ★ 節氣門開度 → 扭力不是線性的 ★
+     低轉時只要開一點點，歧管壓力就接近大氣壓（引擎本來就抽不了那麼多氣），
+     所以 20% 踏板在 1000 rpm 可以拿到約 35% 的扭力；高轉時同樣的開度
+     反而被節流限制住。少了這條「部分負荷」特性，輕油門完全推不動車。
+     全油門時 thrEff 恆為 1，所以直線加速的數據不受影響。
+     指數用 rf 的平方而非線性：節流的影響要到引擎真的想吸大量空氣時才顯現。
+     以 M52B28、兩成踏板為例 —— 1400 rpm 拿到 55% 扭力（可以正常巡航），
+     4500 rpm 只剩 20%（高轉半油門本來就沒力）。 */
+  const rf = Math.min(1, rpm/Math.max(2000, (cv.psRpm||6000)*0.85));
+  const thrEff = Math.pow(Math.max(0,Math.min(1,S.throttle)), 0.30 + 0.95*rf*rf);
+  let t = peak*torqueFactor(cv, rpm)*thrEff;
+  /* 怠速控制：轉速低於怠速時補扭力，避免熄火。
+     ★ 不能只在放油門時作用 ★
+     放油門滑行時這是 ECU 的怠速旁通閥；但踩著油門慢慢起步時，
+     這一項代表的是自排的扭力轉換器（失速時扭力放大約 1.8～2.2 倍），
+     或手排駕駛半離合的動作 —— 兩者都不會讓引擎被離合器拖到怠速以下。
+     少了這一項，輕油門起步時引擎會卡在 380 rpm 的下限動不了。 */
   const idle = cv.diesel?760:800;
-  if(rpm < idle*1.35 && S.throttle < .12){
-    t += peak*.16*Math.max(0,(idle*1.15-rpm)/(idle*1.15));
+  if(rpm < idle*1.35){
+    const need = Math.max(0,(idle*1.15-rpm)/(idle*1.15));
+    t += peak*(S.throttle<.12 ? .16 : .38)*need;
   }
-  /* 引擎煞車：放油門時的泵損，轉速越高越強 */
-  const brakeT = (24 + rpm*0.010)*(1-S.throttle);
+  /* 引擎煞車：放油門時的泵損，轉速越高越強（同樣看有效開度而非踏板） */
+  const brakeT = (24 + rpm*0.010)*(1-thrEff);
   return t - brakeT;
 }
 
@@ -3791,25 +3807,63 @@ function engineTorque(S, dt){
    自排換檔邏輯
    -------------------------------------------------------------------------- */
 function autoShift(S, dt){
+  /* ★ 加速度追蹤要放在提前 return 之前 ★ 否則換檔冷卻時間內不更新，
+     冷卻一結束就會算出一個假的巨大加速度。 */
+  const vNow=Math.abs(S.vx);
+  const ax=(vNow-(S.acV==null?vNow:S.acV))/Math.max(1e-4,dt);
+  S.acV=vNow;
   if(S.shiftCool>0){ S.shiftCool-=dt; return; }
   if(S.shifting>0) return;
-  const cv=S.cfg.cv, n=S.cfg.gears.length;
+  const cv=S.cfg.cv, G=S.cfg.gears, n=G.length;
   /* ★ 用車速回推的轉速判斷，不能用引擎轉速 ★
      起步放離合器時引擎會空轉到很高，拿引擎轉速判斷會一路亂升檔。 */
   const r=totalRatio(S); if(!r) return;
   const wheelRpm = Math.abs(S.vx)/S.cfg.tireR*Math.abs(r)*30/Math.PI;
-  const up = cv.psRpm*(0.74+0.24*S.throttle);
-  const dn = cv.psRpm*0.34;
-  /* 觸發用引擎轉速（起步空轉時它才會到限轉，這時本來就該升檔），
-     但升上去之後的轉速必須夠高才准換 —— 否則低速時會一路升到頂檔然後熄火。 */
-  if(S.gear<n && S.rpm>up){
-    const nextWheelRpm = wheelRpm*(+S.cfg.gears[S.gear]/+S.cfg.gears[S.gear-1]);
-    /* 門檻必須高過降檔門檻（0.34），否則升上去馬上又被降回來 */
-    if(nextWheelRpm > cv.psRpm*0.44){ shiftTo(S,S.gear+1); S.shiftCool=.55; }
+  /* ★ 換檔轉速要隨油門大幅變化 ★
+     舊版寫成 psRpm*(0.74+0.24*throttle)，即使完全放開油門也要 3900 rpm
+     才肯升檔 —— 真實的自排在輕油門巡航時 2000 rpm 出頭就換上去了。
+     結果就是一般開法永遠掛在三、四檔高轉，很少看得到五檔。
+     改成以「怠速之上到接近斷油」為區間，依油門插值。
+     指數取 1.35 而非線性：真實自排在輕油門時換檔轉速壓得很低，
+     要到油門踩深了才明顯往上拉。以 M52B28（斷油 6700）為例：
+       全放油門  升 1500 / 降 1000
+       兩成油門  升 2062 / 降 1365   ← 一般市區開法，五檔在 66 km/h 就進去了
+       六成油門  升 3964 / 降 2597
+       全油門    升 6365 / 降 4154 */
+  const k = Math.pow(Math.max(0, Math.min(1, S.pedal)), 1.35);
+  const up = 1500 + (cv.cut*0.95 - 1500)*k;
+  const dnWant = 1000 + (cv.cut*0.62 - 1000)*k;
+  /* ★ 升檔與降檔門檻必須跟齒比間隔一致 ★
+     升檔後轉速會掉成 1/step，如果降檔門檻比它還高，就會立刻被降回來；
+     反過來若兩個門檻互咬，結果是「完全不換檔」—— 前一版全油門卡在一檔
+     就是這樣來的（升檔要求下一檔 4348 rpm，實際只有 3736）。
+     所以降檔門檻一律再受 up/step 壓制，讓兩者結構上不可能打架。 */
+  const dnOf = g => g<=1 ? 0 :
+    Math.min(dnWant, up/(+G[g-2]/+G[g-1])*0.90);
+  /* 巡航升檔：部分油門下引擎可能永遠到不了 up —— 車已經到那一檔在該油門下
+     的極速，轉速就停在那裡不動了。真實自排這時是靠「車速 × 油門」的換檔線
+     把檔位排上去，不是傻等轉速。所以另外看「已經幾乎不加速了」，
+     持續 0.9 秒就升檔 —— 這正是半油門只到四檔的原因。 */
+  if(S.gear<n && S.pedal>.05 && S.pedal<.94 && vNow>6 &&
+     S.rpm>up*0.55 && ax<0.35) S.cruiseT=(S.cruiseT||0)+dt;
+  else S.cruiseT=0;
+  /* 離合器還在打滑時（起步），引擎轉速是空轉出來的，不能拿它去撞斷油門檻，
+     否則會在時速 8 公里就被強制升檔然後又降回來。 */
+  const locked = S.rpm <= wheelRpm*1.10 + 250;
+  if(S.gear<n && (S.rpm>up || S.cruiseT>0.9)){
+    const nextWheelRpm = wheelRpm*(+G[S.gear]/+G[S.gear-1]);
+    /* 升上去之後的轉速必須高於「新檔位的降檔門檻」，否則升了又馬上被降回來。
+       巡航升檔（不是被轉速逼上去的）要留更大的餘裕 —— 那時車子本來就在
+       equilibrium 附近，餘裕不夠就會在同一個速度上下來回換檔。
+       但已經頂到斷油就一定要升 —— 撞限轉比換檔時機不完美更糟。 */
+    const margin = S.rpm>up ? 1.04 : 1.15;
+    if(nextWheelRpm > dnOf(S.gear+1)*margin || (locked && S.rpm > cv.cut*0.985)){
+      shiftTo(S,S.gear+1); S.shiftCool=.55; S.cruiseT=0;
+    }
   }else if(S.gear>1){
     /* 降檔前先確認降下去不會直接超過斷油 */
-    const nextRpm = wheelRpm*(+S.cfg.gears[S.gear-2]/+S.cfg.gears[S.gear-1]);
-    if(wheelRpm<dn && nextRpm<cv.cut*0.92){ shiftTo(S,S.gear-1); S.shiftCool=.45; }
+    const nextRpm = wheelRpm*(+G[S.gear-2]/+G[S.gear-1]);
+    if(wheelRpm<dnOf(S.gear) && nextRpm<cv.cut*0.92){ shiftTo(S,S.gear-1); S.shiftCool=.45; }
   }
 }
 
@@ -3869,6 +3923,12 @@ function stepVehicleSim(S, dt, input){
     }else S.tcCut = Math.max(0, (S.tcCut||0)-dt*3);
   }else S.tcCut = Math.max(0, (S.tcCut||0)-dt*4);
   S.throttle += (thrIn-S.throttle)*Math.min(1, 18*dt);
+  /* ★ 換檔排程要看駕駛的踏板，不是循跡系統修過的油門 ★
+     兩者混在一起會形成回授迴圈：循跡一收油 → 排程以為駕駛放開了 → 升檔
+     → 負載變小、循跡放開 → 排程以為全油門 → 降檔 → 又打滑……
+     步長一大就變成每秒來回換檔好幾次。真實自排讀的是節氣門位置感知器
+     （駕駛的意圖），扭力縮減是 ECU 另外一條路徑，兩者本來就分開。 */
+  S.pedal = (S.pedal||0) + ((input.thr||0)-(S.pedal||0))*Math.min(1, 18*dt);
   S.brake = input.brake||0;
   S.handbrake = input.handbrake?1:0;
   /* 最大轉向角隨車速略降，但不能降太多 ——
@@ -3945,9 +4005,15 @@ function stepVehicleSim(S, dt, input){
   if(engage>0 && Math.abs(S.gear)===1 && Math.abs(S.vx)<5.5){
     if(input.thr>.05) S.launchT=(S.launchT||0)+dt; else S.launchT=0;
     /* 兩個條件取小：轉速要夠（不然熄火）、時間要夠（不然是把離合器摔下去）。
-       真人起步就是這兩件事同時在做，少了時間項就會變成一放就 15 倍空轉。 */
-    const rev=Math.max(0,(S.rpm-900)/1400);
-    const byRev=Math.min(1, rev*rev);
+       真人起步就是這兩件事同時在做，少了時間項就會變成一放就 15 倍空轉。
+       ★ 轉速項要用「目標轉速」回授，不能用固定的 (rpm-900)² ★
+       固定曲線在輕油門時會死鎖：引擎被離合器拉到怠速 → 接合度算出 0
+       → 扭力傳不出去 → 車永遠不動。改成踩多少油門就把引擎撐在對應轉速，
+       多出來的扭力才送到輪上 —— 這也正是扭力轉換器在做的事。 */
+    const idleRpm = C.cv.diesel?760:800;
+    const target = idleRpm + 1500*Math.pow(Math.max(0,Math.min(1,input.thr||0)),0.8);
+    const byRev=Math.max(0, Math.min(1,
+      (S.rpm - idleRpm*0.92)/Math.max(300, target - idleRpm*0.92)));
     const byTime=Math.min(1,(S.launchT||0)/0.85);
     engage=Math.min(engage, Math.max(.04, Math.min(byRev, byTime)));
   }else S.launchT=0;
@@ -3960,10 +4026,22 @@ function stepVehicleSim(S, dt, input){
   let wEng = S.rpm*Math.PI/30;
   let clutchT = 0;
   if(ratio!==0 && engage>0){
-    /* 離合器傳遞扭力：與轉速差成比例，但不超過離合器容許值 */
+    /* 離合器傳遞扭力：與轉速差成比例，但不超過離合器容許值。
+       ★ 這一項必須用半隱式（backward Euler）求解，不能直接乘 ★
+       Tc = k·滑差 本質上是一個阻尼器，時間常數
+         τ = 1 / (k·(1/I引擎 + 1/I傳動))
+       離合器咬住時傳動側折算到引擎端的慣量只有約 0.006 kg·m²，
+       算出來 τ ≈ 0.4 ms —— 遠小於 5 ms 的步長。用顯式積分就會發散，
+       扭力在 ±離合器上限之間來回跳，輪胎看到的是一連串扭力尖峰，
+       循跡系統誤判成打滑而一路切油門：這就是「輕油門開不動」的真正原因。
+       解 Tc = k·(滑差 + dt·(Te/I引擎 − Tc/I引擎 − Tc/I傳動)) 得下式， */
     const slip = wEng - wEngFromWheels;
     const cap = C.clutchNm*engage;
-    clutchT = Math.max(-cap, Math.min(cap, slip*14*engage));
+    const k = 14*engage;
+    const Id = Math.max(1e-4, C.wheelI*dw.length/(ratio*ratio));
+    const denom = 1 + k*dt*(1/C.flyI + 1/Id);
+    const want = k*(slip + dt*Te/C.flyI)/denom;
+    clutchT = Math.max(-cap, Math.min(cap, want));
   }
   /* 引擎角加速度 */
   wEng += (Te - clutchT)/C.flyI*dt;
@@ -7085,15 +7163,22 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
     env:{hemi,key,rim,warm,grid,floor,gridStep:.5,defaultBg:scene.background.getHex()},
     build:renderBuild,lamps:collectCar3DLamps(car),wheels:[],beams:null,loop:!!controls,_maxDist:instanceMaxDist,
     lightState:car3DLightState(renderBuild)};
+  /* ★ 只有設計預覽頁（#stage 之內）的場景可以被駕駛 ★
+     總覽與「我的車」也有 3D 預覽，那些是用來看車的，不該被駕駛狀態影響。
+     先前這段沒有判斷，所以開出去之後切到總覽，車就跑到畫面外了。
+     ★ 這一行必須在 setRoadScene 之前 ★ 否則場景重建時讀到 undefined，
+     駕駛模式中換零件就會整條路消失。 */
+  instance.drivable = !!(root.closest && root.closest('#stage'));
   CAR3D_INSTANCES.push(instance);
   car.traverse(o=>{if(o.userData.carWheel)instance.wheels.push(o);});
   instance.nightApplied=instance.lightState.night;
   if(instance.lightState.night)applyCar3DNight(instance,true);
   applyCar3DLamps(instance);
-  if(CAR3D_DRIVE.on) setRoadScene(instance, true);
+  if(CAR3D_DRIVE.on && instance.drivable) setRoadScene(instance, true);
   applyCar3DView(instance,initialView);
+
   /* render() 重建場景後，若車不在原點，把視角平移過去，不然鏡頭會盯著空地 */
-  const simNow=CAR3D_DRIVE.sim;
+  const simNow = instance.drivable ? CAR3D_DRIVE.sim : null;
   if(simNow&&(simNow.x||simNow.z)){
     camera.position.x+=simNow.x;camera.position.z+=simNow.z;
     if(controls){controls.target.x+=simNow.x;controls.target.z+=simNow.z;}
@@ -7115,12 +7200,12 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
     renderer.setAnimationLoop(t=>{
       if(instance.dead)return;
       const dt=Math.min(.1,Math.max(.001,lastT?(t-lastT)/1000:.016));lastT=t;
-      if(CAR3D_DRIVE.on&&instance.car&&instance===CAR3D_INSTANCES.find(i=>!i.dead)){
-        stepCar3DDrive(instance,dt);
-      }else if(CAR3D_DRIVE.on&&instance.car&&CAR3D_DRIVE.sim){
-        applySimToScene(instance,CAR3D_DRIVE.sim,dt);   // 前後比較：第二個場景跟著同一份狀態
+      if(CAR3D_DRIVE.on&&instance.drivable&&instance.car){
+        const lead=CAR3D_INSTANCES.find(i=>!i.dead&&i.drivable);
+        if(instance===lead) stepCar3DDrive(instance,dt);
+        else if(CAR3D_DRIVE.sim) applySimToScene(instance,CAR3D_DRIVE.sim,dt); // 前後比較的第二個場景
+        if(CAR3D_DRIVE.follow) car3DFollowCam(instance,dt);
       }
-      if(CAR3D_DRIVE.on&&CAR3D_DRIVE.follow)car3DFollowCam(instance,dt);
       if(controls.enabled)controls.update();
       renderer.render(scene,camera);
     });
@@ -7131,6 +7216,13 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
 
 function syncCar3DView(source){
   if(CAR3D_SYNCING||!source.controls) return;
+  /* ★ 駕駛模式中不可以覆寫存下來的視角 ★
+     開車時鏡頭會跟著車一起平移（applySimToScene），那是暫時的狀態。
+     一旦寫回 CAR3D_VIEWS，之後總覽與「我的車」新建的預覽會沿用那個
+     一百多公尺外的鏡頭位置，畫面上就只剩一片空地 —— 車其實在原點，
+     是鏡頭跑掉了。退出駕駛模式時 resetCar3DDrive 會用這裡存的值還原，
+     所以這份資料必須保持乾淨。 */
+  if(CAR3D_DRIVE.on) return;
   const off=source.camera.position.clone().sub(source.controls.target);
   const view={offset:off.toArray(),target:source.controls.target.toArray()};
   CAR3D_VIEWS.set(source.spec.id,view);CAR3D_SYNCING=true;
@@ -7491,7 +7583,7 @@ function car3DFollowCam(x,dt){
 /* 道路場景：只在駕駛模式顯示。
    設計預覽的網格背景是刻意的（乾淨、看得清楚車），開起來才需要環境。 */
 function setRoadScene(x, on){
-  if(x.dead) return;
+  if(x.dead || !x.drivable) return;
   if(on && !x.road){
     const night = !!(x.lightState && x.lightState.night);
     x.road = buildRoadScene(x.THREE, x.scene, night);
@@ -7530,7 +7622,7 @@ function setCar3DDriveMode(on){
   CAR3D_DRIVE.padHandbrake=0;CAR3D_DRIVE.joySteer=0;CAR3D_DRIVE.joyThrottle=0;
   const S=ensureSim(CAR3D_INSTANCES.find(i=>!i.dead)?.build);
   if(on && S.gear===0) S.gear=1;
-  CAR3D_INSTANCES.forEach(x=>{ if(!x.dead) setRoadScene(x, CAR3D_DRIVE.on); });
+  CAR3D_INSTANCES.forEach(x=>{ if(!x.dead&&x.drivable) setRoadScene(x, CAR3D_DRIVE.on); });
   setCar3DFollow(CAR3D_DRIVE.follow);
 }
 function setCar3DFollow(f){
@@ -7545,7 +7637,7 @@ function setCar3DFollow(f){
 }
 function setCar3DVenue(v){
   CAR3D_DRIVE.venue = v;
-  CAR3D_INSTANCES.forEach(x=>{ if(!x.dead && x.road) x.road.setVenue(v); });
+  CAR3D_INSTANCES.forEach(x=>{ if(!x.dead && x.drivable && x.road) x.road.setVenue(v); });
   if(v==='drag') DragTimer.reset();
   if(v==='skid') DriftScore.reset();
   /* 換場地一律把車放回起點，不然會卡在場地外面 */
@@ -7566,6 +7658,7 @@ function resetCar3DDrive(){
   CAR3D_INSTANCES.forEach(x=>{
     if(x.dead||!x.car) return;
     x.car.position.set(0,0,0);x.car.rotation.y=0;x._lastX=0;x._lastZ=0;
+    x.wheels.forEach(w=>{w.rotation.y=0;});
     x.wheels.forEach(w=>{if(w.userData.spin)w.userData.spin.rotation.z=0;});
     if(x.env){
       x.env.grid.position.set(0,0,0);x.env.floor.position.set(0,.005,0);
@@ -7659,8 +7752,12 @@ function toggleCar3DMute(){ EngineAudio.toggleMute(); engineUIRefresh(); }
 
 /* 離開設計預覽頁自動熄火 */
 window.addEventListener('hashchange',()=>{
-  if(EngineAudio.running&&!String(location.hash).startsWith('#build/design')){
-    const S=CAR3D_DRIVE.sim; if(S) S.running=false;
+  if(String(location.hash).startsWith('#build/design')) return;
+  /* 離開設計預覽就退出駕駛模式並把車放回原點 ——
+     不然總覽與「我的車」的預覽會顯示一台歪在旁邊的車。 */
+  if(CAR3D_DRIVE.on){ CAR3D_DRIVE.on=false; resetCar3DDrive(); }
+  if(EngineAudio.running){
+    const S=CAR3D_DRIVE.sim; if(S){ S.running=false; S.starter=0; }
     EngineAudio.stop();
   }
 });
