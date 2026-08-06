@@ -1,0 +1,33 @@
+# 用 GitHub Actions 直接部署靜態站台，取代預設的 pages-build-deployment。
+# 換管線的原因：2026-08-06 連續三次 push 後，舊管線都回報 build 成功，
+# 但線上站台始終供應舊版（連新加的純 ASCII 探針檔都 404）。
+name: Deploy static site to Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+      - id: deployment
+        uses: actions/deploy-pages@v4
