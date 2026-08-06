@@ -771,7 +771,7 @@ function c3iBar(b){
     </div>
     <div class="rowline"><span class="lb"></span>
       <span class="mut" style="font-size:12px">WASD／方向鍵駕駛 · <b>Q</b> 降檔 <b>E</b> 升檔 · <b>空白</b> 手煞車 · <b>左Shift</b> 踩離合。
-      手機用畫面左下搖桿、右下踏板與撥片。想甩尾請關掉循跡防滑。</span>
+      手機用畫面左下搖桿、右下踏板與撥片。<b>循跡防滑</b>開啟時方向盤鎖點會依車速自動收斂、並有防甩尾輔助；關掉才給滿鎖點，也才甩得動。</span>
     </div>
   </div>`;
 }
@@ -841,7 +841,7 @@ function afterInteract(){
 function c3iTC(){
   const S=ensureSim(); S.tc=(S.tc===false);
   const el=$('#c3TC'); if(el) el.classList.toggle('on',S.tc!==false);
-  if(typeof toast==='function') toast(S.tc!==false?'循跡防滑：開':'循跡防滑：關 — 油門可以把車尾送出去');
+  if(typeof toast==='function') toast(S.tc!==false?'循跡防滑：開 — 轉向依車速收斂，不易失控':'循跡防滑：關 — 滿鎖點、無輔助，油門與手煞車可以把車尾送出去');
 }
 function c3iAuto(){
   const on=toggleCar3DAuto();

@@ -1373,24 +1373,26 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
   const initialView=CAR3D_VIEWS.get(spec.id)||framedCar3DView(THREE,car,camera.aspect);
   CAR3D_VIEWS.set(spec.id,initialView);
 
-  let controls=null;
+  let controls=null, instanceMaxDist=0;
   if(config.interactive){
     controls=new OrbitControls(camera,renderer.domElement);
     controls.enableDamping=true;controls.dampingFactor=.075;controls.enablePan=false;
     const initialDistance=new THREE.Vector3().fromArray(initialView.offset).length();
     controls.minDistance=initialDistance*.72;controls.maxDistance=initialDistance*1.75;
     controls.minPolarAngle=.72;controls.maxPolarAngle=1.48;
+    instanceMaxDist=controls.maxDistance;
   }
 
   const instance={root,scene,camera,renderer,controls,spec,car,THREE,dead:false,observer:null,
     env:{hemi,key,rim,warm,grid,floor,gridStep:.5,defaultBg:scene.background.getHex()},
-    build:renderBuild,lamps:collectCar3DLamps(car),wheels:[],beams:null,loop:!!controls,
+    build:renderBuild,lamps:collectCar3DLamps(car),wheels:[],beams:null,loop:!!controls,_maxDist:instanceMaxDist,
     lightState:car3DLightState(renderBuild)};
   CAR3D_INSTANCES.push(instance);
   car.traverse(o=>{if(o.userData.carWheel)instance.wheels.push(o);});
   instance.nightApplied=instance.lightState.night;
   if(instance.lightState.night)applyCar3DNight(instance,true);
   applyCar3DLamps(instance);
+  if(CAR3D_DRIVE.on) setRoadScene(instance, true);
   applyCar3DView(instance,initialView);
   /* render() 重建場景後，若車不在原點，把視角平移過去，不然鏡頭會盯著空地 */
   const simNow=CAR3D_DRIVE.sim;
@@ -1493,6 +1495,7 @@ function afterCarScenes(){
 function disposeCarScenes(){
   while(CAR3D_INSTANCES.length){
     const x=CAR3D_INSTANCES.pop();x.dead=true;x.observer?.disconnect();x.controls?.dispose();x.renderer.setAnimationLoop(null);
+    x.road?.dispose?.();
     x.scene.traverse(o=>{o.geometry?.dispose?.();if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose?.());}});
     x.renderer.dispose();x.renderer.forceContextLoss();
   }
@@ -1609,9 +1612,14 @@ function applyCar3DNight(x,night){
     g.rotation.x=-Math.PI/2;g.position.y=-.012;g.receiveShadow=true;
     x.scene.add(g);e.nightGround=g;
   }
-  if(e.nightGround)e.nightGround.visible=night;
+  if(e.nightGround)e.nightGround.visible=night && !(x.road&&x.road.group.visible);
   const bg=night?0x070b0e:e.defaultBg;
   x.scene.background.setHex(bg);x.scene.fog.color.setHex(bg);
+  if(x.road){
+    x.road.setNight(night);
+    /* 有天空球時背景色只影響霧的顏色 */
+    x.scene.fog.color.setHex(night?0x0c1118:0xc9d4dc);
+  }
   if(!x.loop) renderCar3DOnce(x);
 }
 /* 控制列入口：把目前 build 的燈光廣播到所有場景（與 updateCar3DBuild 同樣行為） */
@@ -1747,7 +1755,8 @@ function applySimToScene(x,S,dt){
   /* 煞車燈：跟著實際煞車 */
   const braking=S.brake>.08||S.handbrake>0;
   if(braking!==!!x._braking){ x._braking=braking; applyCar3DLamps(x); }
-  /* 地面、主光與影子跟著車走 */
+  /* 場景跟著車走 */
+  if(x.road && x.road.group.visible) x.road.update(S.x, S.z);
   const e=x.env;
   if(e){
     const step=e.gridStep||.5;
@@ -1778,12 +1787,48 @@ function car3DFollowCam(x,dt){
   cam.lookAt(S.x,.95,S.z);
 }
 
+/* 道路場景：只在駕駛模式顯示。
+   設計預覽的網格背景是刻意的（乾淨、看得清楚車），開起來才需要環境。 */
+function setRoadScene(x, on){
+  if(x.dead) return;
+  if(on && !x.road){
+    const night = !!(x.lightState && x.lightState.night);
+    x.road = buildRoadScene(x.THREE, x.scene, night);
+    x.scene.add(x.road.group);
+  }
+  if(x.road) x.road.group.visible = on;
+  /* 有道路就不需要網格與那塊只收影子的地板 */
+  if(x.env){
+    x.env.grid.visible = !on;
+    if(x.env.nightGround) x.env.nightGround.visible = !on && !!(x.lightState&&x.lightState.night);
+  }
+  /* 有道路時把霧拉遠，看得到遠景 */
+  if(x.scene.fog){
+    x.scene.fog.near = on ? 120 : 8;
+    x.scene.fog.far  = on ? 700 : 16;
+  }
+  /* ★ 相機的遠裁切面 ★ 設計預覽只要看得到車，50 m 綽綽有餘；
+     但道路場景的天空球在 600 m、遠山在 300 m，不放遠會整個被裁掉，
+     畫面就只剩腳下那塊地。 */
+  x.camera.far = on ? 1400 : 50;
+  x.camera.near = on ? 0.3 : 0.1;
+  x.camera.updateProjectionMatrix();
+  if(x.controls){
+    x.controls.maxDistance = on ? 40 : (x._maxDist||x.controls.maxDistance);
+    x.controls.minPolarAngle = on ? 0.35 : 0.72;
+    x.controls.maxPolarAngle = on ? 1.54 : 1.48;
+  }
+  if(on && x.road && CAR3D_DRIVE.sim) x.road.update(CAR3D_DRIVE.sim.x, CAR3D_DRIVE.sim.z);
+  if(!x.loop) renderCar3DOnce(x);
+}
+
 function setCar3DDriveMode(on){
   CAR3D_DRIVE.on=!!on;
   CAR3D_DRIVE.keys={};CAR3D_DRIVE.padThrottle=0;CAR3D_DRIVE.padBrake=0;
   CAR3D_DRIVE.padHandbrake=0;CAR3D_DRIVE.joySteer=0;CAR3D_DRIVE.joyThrottle=0;
   const S=ensureSim(CAR3D_INSTANCES.find(i=>!i.dead)?.build);
   if(on && S.gear===0) S.gear=1;
+  CAR3D_INSTANCES.forEach(x=>{ if(!x.dead) setRoadScene(x, CAR3D_DRIVE.on); });
   setCar3DFollow(CAR3D_DRIVE.follow);
 }
 function setCar3DFollow(f){

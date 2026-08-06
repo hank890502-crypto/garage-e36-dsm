@@ -146,7 +146,7 @@ function createVehicleSim(build, spec){
     /* 四輪角速度（FL, FR, RL, RR） */
     w:[0,0,0,0], slipR:[0,0,0,0], slipA:[0,0,0,0],
     fxL:[0,0,0,0], fyL:[0,0,0,0], launchT:0,
-    steer:0, brake:0, handbrake:0, tc:true, tcCut:0,
+    steer:0, brake:0, handbrake:0, tc:true, tcCut:0, escBrake:0, escWheel:0,
     /* 輸出 */
     speed:0, drift:0, wheelSpin:0, gForce:0, lastShift:0,
   };
@@ -252,14 +252,27 @@ function stepVehicleSim(S, dt, input){
      這不是作弊 —— E36 多數車款原廠就有 ASC，Eclipse 沒有。
      關掉之後才能用油門把車尾送出去，飄移要關這個。 */
   let thrIn = input.thr||0;
-  if(S.tc!==false){
+  /* ★ 低速不啟動循跡防滑 ★
+     低速時滑移率本來就不可靠（見上面 vRef 的說明），這時候介入會變成
+     「一打方向盤就沒油門」—— 車子停在原地永遠起不來。
+     真實的循跡防滑系統同樣有速度下限，起步時是不作用的。 */
+  const tcActive = S.tc!==false && Math.abs(S.vx) > 3.0;
+  if(tcActive){
     const dwIdx = C.drive==='fwd' ? [0,1] : C.drive==='rwd' ? [2,3] : [0,1,2,3];
-    let worst=0; dwIdx.forEach(i=>worst=Math.max(worst, S.slipR[i]||0));
-    if(worst>0.16){
-      S.tcCut = Math.min(1, (worst-0.16)*2.6);
-      thrIn *= Math.max(0.12, 1-S.tcCut);
+    /* ★ 用「兩輪平均」而不是「最差的那一輪」★
+       過彎時內外輪的行走距離本來就不同，拿最差的那輪判斷會把正常過彎
+       誤判成打滑，結果一打方向盤油門就被掐死（實測從 84 掉到 2 km/h）。 */
+    let sum=0; dwIdx.forEach(i=>sum+=Math.max(0,S.slipR[i]||0));
+    const avg=sum/dwIdx.length;
+    if(avg>0.12){
+      /* 漸進式：滑移越大切越深。
+         正常過彎的滑移率只有 0.03–0.05，完全不會被誤判；
+         真的在空轉（滑移率 1 以上）時才會大幅收油。
+         保留 18% 油門，讓它是「修正」而不是「熄火」。 */
+      S.tcCut = Math.min(1, (avg-0.12)*1.1);
+      thrIn *= Math.max(0.18, 1 - S.tcCut*0.85);
     }else S.tcCut = Math.max(0, (S.tcCut||0)-dt*3);
-  }else S.tcCut = 0;
+  }else S.tcCut = Math.max(0, (S.tcCut||0)-dt*4);
   S.throttle += (thrIn-S.throttle)*Math.min(1, 18*dt);
   S.brake = input.brake||0;
   S.handbrake = input.handbrake?1:0;
@@ -267,7 +280,50 @@ function stepVehicleSim(S, dt, input){
      救車靠的就是反打，反打角度大致要等於滑移角。上限壓到 10 度以下的話
      車一滑出去就永遠救不回來，那不是飄移，是必定打轉。
      靜止約 34°、時速 65 約 22°、時速 110 約 18°。 */
-  const maxSteer = 0.60/(1+Math.abs(S.vx)*0.030);
+  /* 轉向上限有兩段：
+     一般行駛依車速收斂 —— 靜止約 33°、時速 72 約 15°、時速 144 約 9°。
+     這模擬的是駕駛自己的克制：沒有人會在時速 144 給滿舵，那不是轉彎是打轉。
+     但車一旦already在滑，就要放行到足以反打的角度，否則永遠救不回來。 */
+  const vAbs = Math.abs(S.vx);
+  const beta = Math.abs(Math.atan2(-S.vy, Math.max(1, vAbs)));
+  /* ★ 轉向上限由抓地力反推，不是憑感覺給的曲線 ★
+     穩態轉向時 側向加速度 a = v²·δ / 軸距。反過來，想讓 a 不超過輪胎能給的
+     上限，方向盤最多就只能打到 δ = 軸距·a_max / v²。
+     取 a_max ≈ 0.85g 留一點餘裕：
+       時速 36 → 約 24°   時速 72 → 約 6.6°   時速 144 → 約 1.7°
+     舊版在時速 72 給到 21.5°，那等於要求 2G 的側向加速度 —— 物理上拿不到，
+     所以輪胎必定飽和、車必定打轉。這是「高速打方向就高速旋轉」的真正原因。
+     （真實駕駛在高速本來就只給很小的修正量，這個限制模擬的正是這件事。） */
+  /* 方向盤鎖點綁在「循跡防滑」這個輔助開關上，這也是它真正的意義：
+     開 = 有輔助的日常駕駛，關 = 全手動。 */
+  let maxSteer;
+  if(S.tc !== false){
+    /* ---- 輔助開啟：轉向上限由抓地力反推 ----
+       穩態轉向時 側向加速度 a = v²·δ / 軸距，反推 δ = 軸距·a / v²。
+       a 取 0.66g 而不是輪胎極限的 1.0g，刻意留三成餘裕給加速與煞車 ——
+       鍵盤是全有或全無的輸入，按住 D 就是滿舵；滿舵若剛好把抓地力用光，
+       輪胎就沒有餘力再傳動力，於是變成「一轉彎就不會加速」。
+         時速 36 → 約 19°   時速 72 → 約 5°   時速 144 → 約 1.3°
+       舊版在時速 72 給到 21.5°，那等於要求 2G 側向加速度 —— 物理上拿不到，
+       所以輪胎必定飽和、車必定打轉。 */
+    maxSteer = C.wheelbase*6.5/Math.max(20, vAbs*vAbs);
+    maxSteer = Math.max(0.010, Math.min(0.58, maxSteer));
+    /* 已經在滑的時候放寬上限，讓反打救得回來。
+       ★ 但必須先確認是「反打」★ —— 只有轉向方向與滑移方向相反時才放行。
+       少了這個方向判斷會變成正回饋：往打滑方向打死 → 上限被放寬 → 打更多 →
+       滑更多 → 上限又被放寬……實測轉向角會從 3.2 度自己長到 8 度以上然後打轉。 */
+    const betaSigned = Math.atan2(-S.vy, Math.max(1, vAbs));
+    const inSign = Math.sign(input.steer||0);
+    if(inSign !== 0 && inSign !== Math.sign(betaSigned)){
+      maxSteer = Math.max(maxSteer, Math.min(0.52, beta*1.3));
+    }
+  }else{
+    /* ---- 輔助關閉：給到接近實車的方向盤鎖點，隨速度略收 ----
+       靜止約 34°、時速 65 約 24°、時速 144 約 18°。
+       這個角度足以用油門與手煞車把車尾送出去，也足以反打救回來；
+       代價是打過頭一樣會打轉 —— 那本來就是關掉輔助的意思。 */
+    maxSteer = 0.60/(1 + vAbs*0.022);
+  }
   S.steer += ((input.steer||0)*maxSteer - S.steer)*Math.min(1, 9*dt);
 
   if(S.starter>0){
@@ -369,8 +425,11 @@ function stepVehicleSim(S, dt, input){
     const vLong = wx*cx + wy*sx;
     const vLat  = -wx*sx + wy*cx;
 
-    /* 縱向滑移率 */
-    const vRef = Math.max(1.2, Math.abs(vLong));
+    /* 縱向滑移率。
+       ★ 參考速度的下限很重要 ★ 滑移率的定義是 (輪速−地速)/地速，
+       車速接近零時分母趨近 0，任何微小的輪速差都會算出巨大的滑移率。
+       下限設 2.5 m/s 讓低速時的數值穩定（這是業界常見作法）。 */
+    const vRef = Math.max(2.5, Math.abs(vLong));
     const slipRatio = (S.w[i]*C.tireR - vLong)/vRef;
     /* 側向滑移角 */
     const slipAngle = Math.atan2(-vLat, vRef);
@@ -402,6 +461,10 @@ function stepVehicleSim(S, dt, input){
     /* 輪子角動量：驅動扭力 − 地面反力矩 − 煞車 */
     let brakeT = S.brake*C.brakeNm*(front?.62:.38);
     if(S.handbrake && !front) brakeT += C.handbrakeNm;   // 手煞車只鎖後輪
+    /* 車身穩定系統：偵測到甩尾就對單一前輪加煞車，靠輪胎自己產生回正力矩。
+       這是真實 ESC 的作法（不是憑空加一個力矩）。關掉循跡防滑就一起關掉，
+       所以要飄移的人不會被系統一直救回來。 */
+    if(front && S.escBrake && S.escWheel===i) brakeT += S.escBrake*C.brakeNm*0.55;
     const roadT = fx*C.tireR;
     let dw2 = (driveT[i] - roadT)/C.wheelI;
     S.w[i] += dw2*dt;
@@ -438,6 +501,43 @@ function stepVehicleSim(S, dt, input){
   if(Math.abs(S.vx)<.35 && Math.abs(S.vy)<.35){
     S.vy*=Math.pow(.02,dt); S.yaw*=Math.pow(.02,dt);
   }
+
+  /* ---- 車身穩定系統：算出下一步要煞哪一輪 ---- */
+  if(S.tc!==false && Math.abs(S.vx)>4){
+    const slipAng = Math.atan2(-S.vy, Math.max(1,Math.abs(S.vx)));
+    const limit = 0.16;                       // 約 9 度，超過就算甩尾
+    const over = Math.abs(slipAng) - limit;
+    if(over > 0){
+      S.escBrake = Math.min(1, over*3.2);
+      /* 要產生與目前偏航反向的力矩：Mz 對 fx 的貢獻是 −fx·y，
+         煞車讓 fx 為負，所以選 y 與 yaw 同號的那一輪。 */
+      S.escWheel = S.yaw > 0 ? 0 : 1;
+    }else S.escBrake = Math.max(0, (S.escBrake||0) - dt*4);
+  }else S.escBrake = 0;
+
+  /* ---- 數值防護 ----
+     偏航率上限 2.6 rad/s：真實道路車輛不可能超過這個值（那已經是原地打轉），
+     而高速滿舵時輪胎的側向力回授會讓積分發散，實測會直接算出 NaN。
+     這道防線讓模擬在任何輸入下都不會崩掉。 */
+  const YAW_MAX = 2.6;
+  if(S.yaw > YAW_MAX) S.yaw = YAW_MAX;
+  else if(S.yaw < -YAW_MAX) S.yaw = -YAW_MAX;
+  /* 橫向速度不可能超過總速度 */
+  const vLim = Math.max(6, Math.abs(S.vx)*1.6);
+  if(S.vy > vLim) S.vy = vLim; else if(S.vy < -vLim) S.vy = -vLim;
+  /* 最後一道：任何一項變成 NaN／Infinity 就把該項歸零，不讓它擴散 */
+  if(!Number.isFinite(S.vx)) S.vx = 0;
+  if(!Number.isFinite(S.vy)) S.vy = 0;
+  if(!Number.isFinite(S.yaw)) S.yaw = 0;
+  if(!Number.isFinite(S.x)) S.x = 0;
+  if(!Number.isFinite(S.z)) S.z = 0;
+  if(!Number.isFinite(S.heading)) S.heading = 0;
+  for(let i=0;i<4;i++){
+    if(!Number.isFinite(S.w[i])) S.w[i] = 0;
+    if(!Number.isFinite(S.fxL[i])) S.fxL[i] = 0;
+    if(!Number.isFinite(S.fyL[i])) S.fyL[i] = 0;
+  }
+  if(!Number.isFinite(S.rpm)) S.rpm = S.running ? 800 : 0;
 
   /* ---- 位置積分 ---- */
   S.heading += S.yaw*dt;

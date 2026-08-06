@@ -3741,7 +3741,7 @@ function createVehicleSim(build, spec){
     /* 四輪角速度（FL, FR, RL, RR） */
     w:[0,0,0,0], slipR:[0,0,0,0], slipA:[0,0,0,0],
     fxL:[0,0,0,0], fyL:[0,0,0,0], launchT:0,
-    steer:0, brake:0, handbrake:0, tc:true, tcCut:0,
+    steer:0, brake:0, handbrake:0, tc:true, tcCut:0, escBrake:0, escWheel:0,
     /* 輸出 */
     speed:0, drift:0, wheelSpin:0, gForce:0, lastShift:0,
   };
@@ -3847,14 +3847,27 @@ function stepVehicleSim(S, dt, input){
      這不是作弊 —— E36 多數車款原廠就有 ASC，Eclipse 沒有。
      關掉之後才能用油門把車尾送出去，飄移要關這個。 */
   let thrIn = input.thr||0;
-  if(S.tc!==false){
+  /* ★ 低速不啟動循跡防滑 ★
+     低速時滑移率本來就不可靠（見上面 vRef 的說明），這時候介入會變成
+     「一打方向盤就沒油門」—— 車子停在原地永遠起不來。
+     真實的循跡防滑系統同樣有速度下限，起步時是不作用的。 */
+  const tcActive = S.tc!==false && Math.abs(S.vx) > 3.0;
+  if(tcActive){
     const dwIdx = C.drive==='fwd' ? [0,1] : C.drive==='rwd' ? [2,3] : [0,1,2,3];
-    let worst=0; dwIdx.forEach(i=>worst=Math.max(worst, S.slipR[i]||0));
-    if(worst>0.16){
-      S.tcCut = Math.min(1, (worst-0.16)*2.6);
-      thrIn *= Math.max(0.12, 1-S.tcCut);
+    /* ★ 用「兩輪平均」而不是「最差的那一輪」★
+       過彎時內外輪的行走距離本來就不同，拿最差的那輪判斷會把正常過彎
+       誤判成打滑，結果一打方向盤油門就被掐死（實測從 84 掉到 2 km/h）。 */
+    let sum=0; dwIdx.forEach(i=>sum+=Math.max(0,S.slipR[i]||0));
+    const avg=sum/dwIdx.length;
+    if(avg>0.12){
+      /* 漸進式：滑移越大切越深。
+         正常過彎的滑移率只有 0.03–0.05，完全不會被誤判；
+         真的在空轉（滑移率 1 以上）時才會大幅收油。
+         保留 18% 油門，讓它是「修正」而不是「熄火」。 */
+      S.tcCut = Math.min(1, (avg-0.12)*1.1);
+      thrIn *= Math.max(0.18, 1 - S.tcCut*0.85);
     }else S.tcCut = Math.max(0, (S.tcCut||0)-dt*3);
-  }else S.tcCut = 0;
+  }else S.tcCut = Math.max(0, (S.tcCut||0)-dt*4);
   S.throttle += (thrIn-S.throttle)*Math.min(1, 18*dt);
   S.brake = input.brake||0;
   S.handbrake = input.handbrake?1:0;
@@ -3862,7 +3875,50 @@ function stepVehicleSim(S, dt, input){
      救車靠的就是反打，反打角度大致要等於滑移角。上限壓到 10 度以下的話
      車一滑出去就永遠救不回來，那不是飄移，是必定打轉。
      靜止約 34°、時速 65 約 22°、時速 110 約 18°。 */
-  const maxSteer = 0.60/(1+Math.abs(S.vx)*0.030);
+  /* 轉向上限有兩段：
+     一般行駛依車速收斂 —— 靜止約 33°、時速 72 約 15°、時速 144 約 9°。
+     這模擬的是駕駛自己的克制：沒有人會在時速 144 給滿舵，那不是轉彎是打轉。
+     但車一旦already在滑，就要放行到足以反打的角度，否則永遠救不回來。 */
+  const vAbs = Math.abs(S.vx);
+  const beta = Math.abs(Math.atan2(-S.vy, Math.max(1, vAbs)));
+  /* ★ 轉向上限由抓地力反推，不是憑感覺給的曲線 ★
+     穩態轉向時 側向加速度 a = v²·δ / 軸距。反過來，想讓 a 不超過輪胎能給的
+     上限，方向盤最多就只能打到 δ = 軸距·a_max / v²。
+     取 a_max ≈ 0.85g 留一點餘裕：
+       時速 36 → 約 24°   時速 72 → 約 6.6°   時速 144 → 約 1.7°
+     舊版在時速 72 給到 21.5°，那等於要求 2G 的側向加速度 —— 物理上拿不到，
+     所以輪胎必定飽和、車必定打轉。這是「高速打方向就高速旋轉」的真正原因。
+     （真實駕駛在高速本來就只給很小的修正量，這個限制模擬的正是這件事。） */
+  /* 方向盤鎖點綁在「循跡防滑」這個輔助開關上，這也是它真正的意義：
+     開 = 有輔助的日常駕駛，關 = 全手動。 */
+  let maxSteer;
+  if(S.tc !== false){
+    /* ---- 輔助開啟：轉向上限由抓地力反推 ----
+       穩態轉向時 側向加速度 a = v²·δ / 軸距，反推 δ = 軸距·a / v²。
+       a 取 0.66g 而不是輪胎極限的 1.0g，刻意留三成餘裕給加速與煞車 ——
+       鍵盤是全有或全無的輸入，按住 D 就是滿舵；滿舵若剛好把抓地力用光，
+       輪胎就沒有餘力再傳動力，於是變成「一轉彎就不會加速」。
+         時速 36 → 約 19°   時速 72 → 約 5°   時速 144 → 約 1.3°
+       舊版在時速 72 給到 21.5°，那等於要求 2G 側向加速度 —— 物理上拿不到，
+       所以輪胎必定飽和、車必定打轉。 */
+    maxSteer = C.wheelbase*6.5/Math.max(20, vAbs*vAbs);
+    maxSteer = Math.max(0.010, Math.min(0.58, maxSteer));
+    /* 已經在滑的時候放寬上限，讓反打救得回來。
+       ★ 但必須先確認是「反打」★ —— 只有轉向方向與滑移方向相反時才放行。
+       少了這個方向判斷會變成正回饋：往打滑方向打死 → 上限被放寬 → 打更多 →
+       滑更多 → 上限又被放寬……實測轉向角會從 3.2 度自己長到 8 度以上然後打轉。 */
+    const betaSigned = Math.atan2(-S.vy, Math.max(1, vAbs));
+    const inSign = Math.sign(input.steer||0);
+    if(inSign !== 0 && inSign !== Math.sign(betaSigned)){
+      maxSteer = Math.max(maxSteer, Math.min(0.52, beta*1.3));
+    }
+  }else{
+    /* ---- 輔助關閉：給到接近實車的方向盤鎖點，隨速度略收 ----
+       靜止約 34°、時速 65 約 24°、時速 144 約 18°。
+       這個角度足以用油門與手煞車把車尾送出去，也足以反打救回來；
+       代價是打過頭一樣會打轉 —— 那本來就是關掉輔助的意思。 */
+    maxSteer = 0.60/(1 + vAbs*0.022);
+  }
   S.steer += ((input.steer||0)*maxSteer - S.steer)*Math.min(1, 9*dt);
 
   if(S.starter>0){
@@ -3964,8 +4020,11 @@ function stepVehicleSim(S, dt, input){
     const vLong = wx*cx + wy*sx;
     const vLat  = -wx*sx + wy*cx;
 
-    /* 縱向滑移率 */
-    const vRef = Math.max(1.2, Math.abs(vLong));
+    /* 縱向滑移率。
+       ★ 參考速度的下限很重要 ★ 滑移率的定義是 (輪速−地速)/地速，
+       車速接近零時分母趨近 0，任何微小的輪速差都會算出巨大的滑移率。
+       下限設 2.5 m/s 讓低速時的數值穩定（這是業界常見作法）。 */
+    const vRef = Math.max(2.5, Math.abs(vLong));
     const slipRatio = (S.w[i]*C.tireR - vLong)/vRef;
     /* 側向滑移角 */
     const slipAngle = Math.atan2(-vLat, vRef);
@@ -3997,6 +4056,10 @@ function stepVehicleSim(S, dt, input){
     /* 輪子角動量：驅動扭力 − 地面反力矩 − 煞車 */
     let brakeT = S.brake*C.brakeNm*(front?.62:.38);
     if(S.handbrake && !front) brakeT += C.handbrakeNm;   // 手煞車只鎖後輪
+    /* 車身穩定系統：偵測到甩尾就對單一前輪加煞車，靠輪胎自己產生回正力矩。
+       這是真實 ESC 的作法（不是憑空加一個力矩）。關掉循跡防滑就一起關掉，
+       所以要飄移的人不會被系統一直救回來。 */
+    if(front && S.escBrake && S.escWheel===i) brakeT += S.escBrake*C.brakeNm*0.55;
     const roadT = fx*C.tireR;
     let dw2 = (driveT[i] - roadT)/C.wheelI;
     S.w[i] += dw2*dt;
@@ -4033,6 +4096,43 @@ function stepVehicleSim(S, dt, input){
   if(Math.abs(S.vx)<.35 && Math.abs(S.vy)<.35){
     S.vy*=Math.pow(.02,dt); S.yaw*=Math.pow(.02,dt);
   }
+
+  /* ---- 車身穩定系統：算出下一步要煞哪一輪 ---- */
+  if(S.tc!==false && Math.abs(S.vx)>4){
+    const slipAng = Math.atan2(-S.vy, Math.max(1,Math.abs(S.vx)));
+    const limit = 0.16;                       // 約 9 度，超過就算甩尾
+    const over = Math.abs(slipAng) - limit;
+    if(over > 0){
+      S.escBrake = Math.min(1, over*3.2);
+      /* 要產生與目前偏航反向的力矩：Mz 對 fx 的貢獻是 −fx·y，
+         煞車讓 fx 為負，所以選 y 與 yaw 同號的那一輪。 */
+      S.escWheel = S.yaw > 0 ? 0 : 1;
+    }else S.escBrake = Math.max(0, (S.escBrake||0) - dt*4);
+  }else S.escBrake = 0;
+
+  /* ---- 數值防護 ----
+     偏航率上限 2.6 rad/s：真實道路車輛不可能超過這個值（那已經是原地打轉），
+     而高速滿舵時輪胎的側向力回授會讓積分發散，實測會直接算出 NaN。
+     這道防線讓模擬在任何輸入下都不會崩掉。 */
+  const YAW_MAX = 2.6;
+  if(S.yaw > YAW_MAX) S.yaw = YAW_MAX;
+  else if(S.yaw < -YAW_MAX) S.yaw = -YAW_MAX;
+  /* 橫向速度不可能超過總速度 */
+  const vLim = Math.max(6, Math.abs(S.vx)*1.6);
+  if(S.vy > vLim) S.vy = vLim; else if(S.vy < -vLim) S.vy = -vLim;
+  /* 最後一道：任何一項變成 NaN／Infinity 就把該項歸零，不讓它擴散 */
+  if(!Number.isFinite(S.vx)) S.vx = 0;
+  if(!Number.isFinite(S.vy)) S.vy = 0;
+  if(!Number.isFinite(S.yaw)) S.yaw = 0;
+  if(!Number.isFinite(S.x)) S.x = 0;
+  if(!Number.isFinite(S.z)) S.z = 0;
+  if(!Number.isFinite(S.heading)) S.heading = 0;
+  for(let i=0;i<4;i++){
+    if(!Number.isFinite(S.w[i])) S.w[i] = 0;
+    if(!Number.isFinite(S.fxL[i])) S.fxL[i] = 0;
+    if(!Number.isFinite(S.fyL[i])) S.fyL[i] = 0;
+  }
+  if(!Number.isFinite(S.rpm)) S.rpm = S.running ? 800 : 0;
 
   /* ---- 位置積分 ---- */
   S.heading += S.yaw*dt;
@@ -4676,6 +4776,312 @@ function pushEngineAudio(S){
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden) EngineAudio.suspend(); else EngineAudio.resumeIfRunning();
 });
+
+/* ===== 24-scene-road.js ===== */
+/* ==========================================================================
+   駕駛模式的道路與場景
+   --------------------------------------------------------------------------
+   為什麼是程式生成而不是找現成的 3D 道路模型：
+
+     1. 車會一直開下去。任何固定的模型都有邊界，開到底就穿幫；
+        程式生成的道路可以無限延伸（實作上是讓路面跟著車走並對齊標線週期）。
+     2. 授權。本專案在授權上一路謹慎（見 NOTICE.md），道路模型的授權條款
+        往往比車輛模型更模糊。程式生成沒有這個問題。
+     3. 體積。repo 已經有 48 MB 的車輛網格，再塞一個場景模型會很痛；
+        這整份程式碼不到 20 KB，貼圖是啟動時用 canvas 畫出來的。
+     4. 可以畫對。標線尺寸直接照台灣法規，而不是照某個外國模型的樣子。
+
+   標線尺寸依「道路交通標誌標線號誌設置規則」：
+     車道線（第182條）      白虛線，線段 4 m、間距 6 m、線寬 10 cm
+     分向限制線（第165條）  雙黃實線，線寬與間隔均 10 cm
+     路面邊線（第183條）    白實線，線寬 15 cm
+   車道寬取 3.5 m（一般道路常見值，法規未硬性規定單一數字）。
+
+   ★ 路邊的柱子不是裝飾 ★
+   在完全平坦的地面上開車是感覺不到速度的 —— 沒有東西經過你身邊。
+   反光導標與路燈這些垂直物體才是速度感的來源，所以間距刻意做成規律的
+   （導標 20 m、路燈 45 m），這樣掃過去的頻率就直接對應車速。
+   ========================================================================== */
+
+const ROAD = {
+  laneW: 3.5,          // 車道寬（公尺）
+  lanes: 2,            // 單向車道數
+  tileL: 10,           // 標線循環長度：線段 4 + 間距 6
+  texSpanZ: 44,        // 貼圖橫向涵蓋範圍（含路肩與草地）
+  roadLen: 900,        // 路面板長度，夠遠才不會看到盡頭
+  ppm: 16,             // 貼圖解析度（像素/公尺）
+  postGap: 20,         // 反光導標間距
+  poleGap: 45,         // 路燈間距
+};
+ROAD.roadW = ROAD.laneW*ROAD.lanes*2;      // 雙向總寬 14 m
+ROAD.shoulder = 2.0;                        // 路肩
+
+/* --------------------------------------------------------------------------
+   用 canvas 畫出路面貼圖（橫向一整條剖面，縱向一個標線週期）
+   -------------------------------------------------------------------------- */
+function makeRoadTexture(THREE, night){
+  const P = ROAD.ppm;
+  const W = Math.round(ROAD.tileL*P);        // 縱向：一個 10 m 週期
+  const H = Math.round(ROAD.texSpanZ*P);     // 橫向：44 m
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const g = cv.getContext('2d');
+  const m2px = m => m*P;
+  const midH = H/2;
+
+  /* 草地／土地 */
+  g.fillStyle = night ? '#1a2119' : '#5f6b4a';
+  g.fillRect(0,0,W,H);
+  /* 草地的顆粒感 */
+  for(let i=0;i<900;i++){
+    g.fillStyle = night ? 'rgba(255,255,255,.012)' : 'rgba(255,255,255,.04)';
+    g.fillRect(Math.random()*W, Math.random()*H, 2, 2);
+  }
+
+  const halfRoad = ROAD.roadW/2, halfSh = halfRoad + ROAD.shoulder;
+
+  /* 路肩：碎石色 */
+  g.fillStyle = night ? '#2a2b28' : '#8a8577';
+  g.fillRect(0, midH-m2px(halfSh), W, m2px(halfSh*2));
+
+  /* 柏油路面 */
+  const asphalt = night ? '#1b1d20' : '#454749';
+  g.fillStyle = asphalt;
+  g.fillRect(0, midH-m2px(halfRoad), W, m2px(halfRoad*2));
+  /* 柏油的骨材顆粒 */
+  for(let i=0;i<2600;i++){
+    const y = midH-m2px(halfRoad) + Math.random()*m2px(halfRoad*2);
+    const v = Math.random();
+    g.fillStyle = v>.5 ? 'rgba(255,255,255,.030)' : 'rgba(0,0,0,.055)';
+    g.fillRect(Math.random()*W, y, 1.6, 1.6);
+  }
+  /* 舊路面常見的縱向補胎痕（很淡，只是讓路面不要太平） */
+  g.fillStyle = 'rgba(0,0,0,.06)';
+  [-1,1].forEach(s=>{
+    for(let l=0;l<ROAD.lanes;l++){
+      const c = s*(ROAD.laneW*(l+0.5));
+      g.fillRect(0, midH+m2px(c)-m2px(0.9), W, m2px(0.16));
+      g.fillRect(0, midH+m2px(c)+m2px(0.74), W, m2px(0.16));
+    }
+  });
+
+  const white = night ? '#c8ccc4' : '#eef0e9';
+  const yellow = night ? '#b09a3e' : '#e3c341';
+
+  /* 分向限制線：雙黃實線，線寬與間隔均 10 cm（第165條） */
+  g.fillStyle = yellow;
+  g.fillRect(0, midH-m2px(0.15), W, m2px(0.10));   // 中心往上 10cm 間隔的一半
+  g.fillRect(0, midH+m2px(0.05), W, m2px(0.10));
+
+  /* 車道線：白虛線，線段 4 m、間距 6 m、線寬 10 cm（第182條）
+     貼圖縱向就是行車方向，所以在 0–4 m 畫線段、4–10 m 留空。 */
+  g.fillStyle = white;
+  for(let s=-1;s<=1;s+=2){
+    for(let l=1;l<ROAD.lanes;l++){
+      const c = s*(ROAD.laneW*l);
+      g.fillRect(0, midH+m2px(c)-m2px(0.05), m2px(4), m2px(0.10));
+    }
+  }
+
+  /* 路面邊線：白實線，線寬 15 cm（第183條） */
+  g.fillStyle = white;
+  [-1,1].forEach(s=>{
+    const c = s*halfRoad;
+    g.fillRect(0, midH+m2px(c)-m2px(s>0?0.15:0), W, m2px(0.15));
+  });
+
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = THREE.RepeatWrapping;    // 沿著行車方向重複
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.repeat.set(ROAD.roadLen/ROAD.tileL, 1);
+  tex.anisotropy = 8;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/* --------------------------------------------------------------------------
+   天空：上下漸層的內面球
+   -------------------------------------------------------------------------- */
+function makeSky(THREE, night){
+  const geo = new THREE.SphereGeometry(600, 24, 16);
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms:{
+      top:   {value:new THREE.Color(night?0x070c14:0x7fb2e0)},
+      bot:   {value:new THREE.Color(night?0x11161c:0xdfe6ea)},
+      horiz: {value:new THREE.Color(night?0x0c1118:0xf2f0e6)},
+    },
+    vertexShader:`varying float vY;
+      void main(){ vY = normalize(position).y;
+        gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader:`uniform vec3 top; uniform vec3 bot; uniform vec3 horiz;
+      varying float vY;
+      void main(){
+        float h = smoothstep(-0.06, 0.30, vY);
+        vec3 c = mix(horiz, top, h);
+        c = mix(bot, c, smoothstep(-0.35, -0.02, vY));
+        gl_FragColor = vec4(c, 1.0);
+      }`,
+  });
+  const m = new THREE.Mesh(geo, mat);
+  m.frustumCulled = false;
+  return m;
+}
+
+/* --------------------------------------------------------------------------
+   建立整組道路場景
+   -------------------------------------------------------------------------- */
+function buildRoadScene(THREE, scene, night){
+  const grp = new THREE.Group();
+  grp.name = 'roadScene';
+
+  /* ---- 路面 ---- */
+  const roadTex = makeRoadTexture(THREE, night);
+  const roadMat = new THREE.MeshStandardMaterial({map:roadTex, roughness:.94, metalness:0});
+  const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD.roadLen, ROAD.texSpanZ), roadMat);
+  road.rotation.x = -Math.PI/2;
+  road.position.y = 0.02;
+  road.receiveShadow = true;
+  grp.add(road);
+
+  /* ---- 遠處的地面：比貼圖範圍更大的一塊素色地，避免看到邊界 ---- */
+  const groundMat = new THREE.MeshStandardMaterial({
+    color: night?0x141a15:0x59634a, roughness:1, metalness:0});
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(1600,1600), groundMat);
+  ground.rotation.x = -Math.PI/2;
+  ground.position.y = -0.06;
+  ground.receiveShadow = true;
+  grp.add(ground);
+
+  /* ---- 反光導標：路肩外側，20 m 一根 ---- */
+  const postN = Math.ceil(ROAD.roadLen/ROAD.postGap);
+  const postGeo = new THREE.CylinderGeometry(0.045,0.055,0.85,6);
+  const postMat = new THREE.MeshStandardMaterial({color:night?0xb8b8ae:0xe8e8e0, roughness:.7});
+  const posts = new THREE.InstancedMesh(postGeo, postMat, postN*2);
+  posts.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  grp.add(posts);
+  /* 導標上的反光片：夜間會亮 */
+  const refGeo = new THREE.BoxGeometry(0.02,0.10,0.075);
+  const refMat = new THREE.MeshStandardMaterial({
+    color:0xff5a2a, emissive:0xff3a10, emissiveIntensity:night?1.7:0.15, roughness:.4});
+  const refs = new THREE.InstancedMesh(refGeo, refMat, postN*2);
+  refs.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  grp.add(refs);
+
+  /* ---- 路燈：單側，45 m 一根 ---- */
+  const poleN = Math.ceil(ROAD.roadLen/ROAD.poleGap);
+  const poleGeo = new THREE.CylinderGeometry(0.075,0.10,8.2,7);
+  const poleMat = new THREE.MeshStandardMaterial({color:night?0x3c4247:0x8d949a, roughness:.6, metalness:.5});
+  const poles = new THREE.InstancedMesh(poleGeo, poleMat, poleN);
+  poles.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  grp.add(poles);
+  /* 燈頭：夜間發光 */
+  const headGeo = new THREE.BoxGeometry(1.5,0.20,0.55);
+  const headMat = new THREE.MeshStandardMaterial({
+    color:night?0xfff0c8:0x9aa0a4, emissive:0xffdf9a, emissiveIntensity:night?2.4:0, roughness:.5});
+  const heads = new THREE.InstancedMesh(headGeo, headMat, poleN);
+  heads.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  grp.add(heads);
+
+  /* ---- 遠景：一圈低多邊形丘陵，永遠保持在遠處 ---- */
+  const hills = new THREE.Group();
+  const hillMat = new THREE.MeshStandardMaterial({
+    color:night?0x0e1512:0x4a5747, roughness:1, metalness:0, fog:true});
+  for(let i=0;i<26;i++){
+    const a = i/26*Math.PI*2 + (i%3)*0.06;
+    const r = 300 + (i%4)*38;
+    const h = 22 + (i%5)*14;
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(48+(i%3)*22, h, 5), hillMat);
+    cone.position.set(Math.cos(a)*r, h/2-6, Math.sin(a)*r);
+    cone.rotation.y = i*1.1;
+    hills.add(cone);
+  }
+  grp.add(hills);
+
+  /* ---- 天空 ---- */
+  const sky = makeSky(THREE, night);
+  grp.add(sky);
+
+  /* ---- 每幀更新：把整組東西跟著車移動 ---- */
+  const dummy = new THREE.Object3D();
+  const state = {night, builtNight:night};
+
+  function layout(carX, carZ){
+    /* 路面沿 X 對齊標線週期，這樣標線不會抖動 */
+    road.position.x = Math.round(carX/ROAD.tileL)*ROAD.tileL;
+    ground.position.x = carX; ground.position.z = carZ;
+    hills.position.set(carX, 0, carZ);
+    sky.position.set(carX, 0, carZ);
+
+    const zOut = ROAD.roadW/2 + ROAD.shoulder + 0.6;
+    const base = Math.floor((carX - ROAD.roadLen/2)/ROAD.postGap)*ROAD.postGap;
+    let n = 0;
+    for(let i=0;i<postN;i++){
+      const x = base + i*ROAD.postGap;
+      for(const s of [-1,1]){
+        dummy.position.set(x, 0.42, s*zOut);
+        dummy.rotation.set(0,0,0); dummy.updateMatrix();
+        posts.setMatrixAt(n, dummy.matrix);
+        dummy.position.set(x-0.03*s, 0.62, s*zOut);
+        dummy.updateMatrix();
+        refs.setMatrixAt(n, dummy.matrix);
+        n++;
+      }
+    }
+    posts.count = n; refs.count = n;
+    posts.instanceMatrix.needsUpdate = true;
+    refs.instanceMatrix.needsUpdate = true;
+
+    const pBase = Math.floor((carX - ROAD.roadLen/2)/ROAD.poleGap)*ROAD.poleGap;
+    for(let i=0;i<poleN;i++){
+      const x = pBase + i*ROAD.poleGap;
+      dummy.position.set(x, 4.1, zOut+1.1);
+      dummy.rotation.set(0,0,0); dummy.updateMatrix();
+      poles.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(x, 8.15, zOut+0.45);
+      dummy.updateMatrix();
+      heads.setMatrixAt(i, dummy.matrix);
+    }
+    poles.instanceMatrix.needsUpdate = true;
+    heads.instanceMatrix.needsUpdate = true;
+  }
+
+  layout(0,0);
+
+  return {
+    group: grp,
+    update: layout,
+    /* 日夜切換：貼圖與材質重畫 */
+    setNight(n){
+      if(state.builtNight === n) return;
+      state.builtNight = n;
+      roadMat.map.dispose();
+      roadMat.map = makeRoadTexture(THREE, n);
+      roadMat.needsUpdate = true;
+      groundMat.color.setHex(n?0x141a15:0x59634a);
+      hillMat.color.setHex(n?0x0e1512:0x4a5747);
+      postMat.color.setHex(n?0xb8b8ae:0xe8e8e0);
+      refMat.emissiveIntensity = n?1.7:0.15;
+      poleMat.color.setHex(n?0x3c4247:0x8d949a);
+      headMat.color.setHex(n?0xfff0c8:0x9aa0a4);
+      headMat.emissiveIntensity = n?2.4:0;
+      const u = sky.material.uniforms;
+      u.top.value.setHex(n?0x070c14:0x7fb2e0);
+      u.bot.value.setHex(n?0x11161c:0xdfe6ea);
+      u.horiz.value.setHex(n?0x0c1118:0xf2f0e6);
+    },
+    dispose(){
+      grp.traverse(o=>{
+        o.geometry?.dispose?.();
+        if(o.material){
+          (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{
+            m.map?.dispose?.(); m.dispose?.();
+          });
+        }
+      });
+    },
+  };
+}
 
 /* ===== 30-ui-core.js ===== */
 /* ==========================================================================
@@ -6356,24 +6762,26 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
   const initialView=CAR3D_VIEWS.get(spec.id)||framedCar3DView(THREE,car,camera.aspect);
   CAR3D_VIEWS.set(spec.id,initialView);
 
-  let controls=null;
+  let controls=null, instanceMaxDist=0;
   if(config.interactive){
     controls=new OrbitControls(camera,renderer.domElement);
     controls.enableDamping=true;controls.dampingFactor=.075;controls.enablePan=false;
     const initialDistance=new THREE.Vector3().fromArray(initialView.offset).length();
     controls.minDistance=initialDistance*.72;controls.maxDistance=initialDistance*1.75;
     controls.minPolarAngle=.72;controls.maxPolarAngle=1.48;
+    instanceMaxDist=controls.maxDistance;
   }
 
   const instance={root,scene,camera,renderer,controls,spec,car,THREE,dead:false,observer:null,
     env:{hemi,key,rim,warm,grid,floor,gridStep:.5,defaultBg:scene.background.getHex()},
-    build:renderBuild,lamps:collectCar3DLamps(car),wheels:[],beams:null,loop:!!controls,
+    build:renderBuild,lamps:collectCar3DLamps(car),wheels:[],beams:null,loop:!!controls,_maxDist:instanceMaxDist,
     lightState:car3DLightState(renderBuild)};
   CAR3D_INSTANCES.push(instance);
   car.traverse(o=>{if(o.userData.carWheel)instance.wheels.push(o);});
   instance.nightApplied=instance.lightState.night;
   if(instance.lightState.night)applyCar3DNight(instance,true);
   applyCar3DLamps(instance);
+  if(CAR3D_DRIVE.on) setRoadScene(instance, true);
   applyCar3DView(instance,initialView);
   /* render() 重建場景後，若車不在原點，把視角平移過去，不然鏡頭會盯著空地 */
   const simNow=CAR3D_DRIVE.sim;
@@ -6476,6 +6884,7 @@ function afterCarScenes(){
 function disposeCarScenes(){
   while(CAR3D_INSTANCES.length){
     const x=CAR3D_INSTANCES.pop();x.dead=true;x.observer?.disconnect();x.controls?.dispose();x.renderer.setAnimationLoop(null);
+    x.road?.dispose?.();
     x.scene.traverse(o=>{o.geometry?.dispose?.();if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose?.());}});
     x.renderer.dispose();x.renderer.forceContextLoss();
   }
@@ -6592,9 +7001,14 @@ function applyCar3DNight(x,night){
     g.rotation.x=-Math.PI/2;g.position.y=-.012;g.receiveShadow=true;
     x.scene.add(g);e.nightGround=g;
   }
-  if(e.nightGround)e.nightGround.visible=night;
+  if(e.nightGround)e.nightGround.visible=night && !(x.road&&x.road.group.visible);
   const bg=night?0x070b0e:e.defaultBg;
   x.scene.background.setHex(bg);x.scene.fog.color.setHex(bg);
+  if(x.road){
+    x.road.setNight(night);
+    /* 有天空球時背景色只影響霧的顏色 */
+    x.scene.fog.color.setHex(night?0x0c1118:0xc9d4dc);
+  }
   if(!x.loop) renderCar3DOnce(x);
 }
 /* 控制列入口：把目前 build 的燈光廣播到所有場景（與 updateCar3DBuild 同樣行為） */
@@ -6730,7 +7144,8 @@ function applySimToScene(x,S,dt){
   /* 煞車燈：跟著實際煞車 */
   const braking=S.brake>.08||S.handbrake>0;
   if(braking!==!!x._braking){ x._braking=braking; applyCar3DLamps(x); }
-  /* 地面、主光與影子跟著車走 */
+  /* 場景跟著車走 */
+  if(x.road && x.road.group.visible) x.road.update(S.x, S.z);
   const e=x.env;
   if(e){
     const step=e.gridStep||.5;
@@ -6761,12 +7176,48 @@ function car3DFollowCam(x,dt){
   cam.lookAt(S.x,.95,S.z);
 }
 
+/* 道路場景：只在駕駛模式顯示。
+   設計預覽的網格背景是刻意的（乾淨、看得清楚車），開起來才需要環境。 */
+function setRoadScene(x, on){
+  if(x.dead) return;
+  if(on && !x.road){
+    const night = !!(x.lightState && x.lightState.night);
+    x.road = buildRoadScene(x.THREE, x.scene, night);
+    x.scene.add(x.road.group);
+  }
+  if(x.road) x.road.group.visible = on;
+  /* 有道路就不需要網格與那塊只收影子的地板 */
+  if(x.env){
+    x.env.grid.visible = !on;
+    if(x.env.nightGround) x.env.nightGround.visible = !on && !!(x.lightState&&x.lightState.night);
+  }
+  /* 有道路時把霧拉遠，看得到遠景 */
+  if(x.scene.fog){
+    x.scene.fog.near = on ? 120 : 8;
+    x.scene.fog.far  = on ? 700 : 16;
+  }
+  /* ★ 相機的遠裁切面 ★ 設計預覽只要看得到車，50 m 綽綽有餘；
+     但道路場景的天空球在 600 m、遠山在 300 m，不放遠會整個被裁掉，
+     畫面就只剩腳下那塊地。 */
+  x.camera.far = on ? 1400 : 50;
+  x.camera.near = on ? 0.3 : 0.1;
+  x.camera.updateProjectionMatrix();
+  if(x.controls){
+    x.controls.maxDistance = on ? 40 : (x._maxDist||x.controls.maxDistance);
+    x.controls.minPolarAngle = on ? 0.35 : 0.72;
+    x.controls.maxPolarAngle = on ? 1.54 : 1.48;
+  }
+  if(on && x.road && CAR3D_DRIVE.sim) x.road.update(CAR3D_DRIVE.sim.x, CAR3D_DRIVE.sim.z);
+  if(!x.loop) renderCar3DOnce(x);
+}
+
 function setCar3DDriveMode(on){
   CAR3D_DRIVE.on=!!on;
   CAR3D_DRIVE.keys={};CAR3D_DRIVE.padThrottle=0;CAR3D_DRIVE.padBrake=0;
   CAR3D_DRIVE.padHandbrake=0;CAR3D_DRIVE.joySteer=0;CAR3D_DRIVE.joyThrottle=0;
   const S=ensureSim(CAR3D_INSTANCES.find(i=>!i.dead)?.build);
   if(on && S.gear===0) S.gear=1;
+  CAR3D_INSTANCES.forEach(x=>{ if(!x.dead) setRoadScene(x, CAR3D_DRIVE.on); });
   setCar3DFollow(CAR3D_DRIVE.follow);
 }
 function setCar3DFollow(f){
@@ -8123,7 +8574,7 @@ function c3iBar(b){
     </div>
     <div class="rowline"><span class="lb"></span>
       <span class="mut" style="font-size:12px">WASD／方向鍵駕駛 · <b>Q</b> 降檔 <b>E</b> 升檔 · <b>空白</b> 手煞車 · <b>左Shift</b> 踩離合。
-      手機用畫面左下搖桿、右下踏板與撥片。想甩尾請關掉循跡防滑。</span>
+      手機用畫面左下搖桿、右下踏板與撥片。<b>循跡防滑</b>開啟時方向盤鎖點會依車速自動收斂、並有防甩尾輔助；關掉才給滿鎖點，也才甩得動。</span>
     </div>
   </div>`;
 }
@@ -8193,7 +8644,7 @@ function afterInteract(){
 function c3iTC(){
   const S=ensureSim(); S.tc=(S.tc===false);
   const el=$('#c3TC'); if(el) el.classList.toggle('on',S.tc!==false);
-  if(typeof toast==='function') toast(S.tc!==false?'循跡防滑：開':'循跡防滑：關 — 油門可以把車尾送出去');
+  if(typeof toast==='function') toast(S.tc!==false?'循跡防滑：開 — 轉向依車速收斂，不易失控':'循跡防滑：關 — 滿鎖點、無輔助，油門與手煞車可以把車尾送出去');
 }
 function c3iAuto(){
   const on=toggleCar3DAuto();
