@@ -884,10 +884,13 @@ function bodyStance(spec, build){
    之後若直接寫 model.rotation.z，那個角度是在模型的區域座標下生效 ——
    經過 -90° Y 之後在世界座標會變成繞 X 軸，也就是左右側傾而不是前後俯仰。
    所以改成以世界 Z 軸 premultiply 到原始姿態上。 */
-function applyBodyTilt(THREE, model, tilt){
+function applyBodyTilt(THREE, model, tilt, roll){
   if(!model.userData.baseQuat) model.userData.baseQuat=model.quaternion.clone();
-  model.quaternion.copy(model.userData.baseQuat)
+  const q=model.quaternion.copy(model.userData.baseQuat)
     .premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), tilt));
+  /* roll：駕駛模式的側傾。繞世界 X 軸（車身縱軸），同樣用 premultiply
+     疊在俯仰之後，避免落進模型的區域座標。 */
+  if(roll) q.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), roll));
 }
 
 function car3DTireRadius(build){
@@ -1382,19 +1385,21 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
   const instance={root,scene,camera,renderer,controls,spec,car,THREE,dead:false,observer:null,
     env:{hemi,key,rim,warm,grid,floor,gridStep:.5,defaultBg:scene.background.getHex()},
     build:renderBuild,lamps:collectCar3DLamps(car),wheels:[],beams:null,loop:!!controls,
-    lightState:car3DLightState(renderBuild),drive:null};
+    lightState:car3DLightState(renderBuild)};
   CAR3D_INSTANCES.push(instance);
   car.traverse(o=>{if(o.userData.carWheel)instance.wheels.push(o);});
-  if(CAR3D_DRIVE.on)restoreCar3DDrive(instance);
   instance.nightApplied=instance.lightState.night;
   if(instance.lightState.night)applyCar3DNight(instance,true);
   applyCar3DLamps(instance);
   applyCar3DView(instance,initialView);
   /* render() 重建場景後，若車不在原點，把視角平移過去，不然鏡頭會盯著空地 */
-  if(instance.drive&&(instance.drive.x||instance.drive.z)){
-    camera.position.x+=instance.drive.x;camera.position.z+=instance.drive.z;
-    if(controls){controls.target.x+=instance.drive.x;controls.target.z+=instance.drive.z;}
+  const simNow=CAR3D_DRIVE.sim;
+  if(simNow&&(simNow.x||simNow.z)){
+    camera.position.x+=simNow.x;camera.position.z+=simNow.z;
+    if(controls){controls.target.x+=simNow.x;controls.target.z+=simNow.z;}
+    car.position.x=simNow.x;car.position.z=simNow.z;car.rotation.y=simNow.heading;
   }
+  instance._lastX=simNow?simNow.x:0; instance._lastZ=simNow?simNow.z:0;
   if(controls){
     controls.addEventListener('change',()=>syncCar3DView(instance));controls.update();
   }
@@ -1410,10 +1415,12 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
     renderer.setAnimationLoop(t=>{
       if(instance.dead)return;
       const dt=Math.min(.1,Math.max(.001,lastT?(t-lastT)/1000:.016));lastT=t;
-      if(CAR3D_DRIVE.on&&instance.car){
+      if(CAR3D_DRIVE.on&&instance.car&&instance===CAR3D_INSTANCES.find(i=>!i.dead)){
         stepCar3DDrive(instance,dt);
-        if(CAR3D_DRIVE.follow)car3DFollowCam(instance,dt);
+      }else if(CAR3D_DRIVE.on&&instance.car&&CAR3D_DRIVE.sim){
+        applySimToScene(instance,CAR3D_DRIVE.sim,dt);   // 前後比較：第二個場景跟著同一份狀態
       }
+      if(CAR3D_DRIVE.on&&CAR3D_DRIVE.follow)car3DFollowCam(instance,dt);
       if(controls.enabled)controls.update();
       renderer.render(scene,camera);
     });
@@ -1451,6 +1458,9 @@ function updateCar3DBuild(build){
     if(x.dead||!x.car)return;
     x.build=build;
     const stance=bodyStance(x.spec,build);
+    /* 傳動零件改了就重建模擬（保留位置與速度） */
+    const key=simKey(build);
+    if(CAR3D_DRIVE.sim && CAR3D_DRIVE.sim._key!==key) rebuildSim(build);
     x.car.traverse(o=>{
       if(o.userData.vehicleBody){
         const ride=o.userData.ride?car3DRideOffset(x.spec.id,build):0;
@@ -1552,7 +1562,7 @@ function applyCar3DLamps(x){
   if(x.dead||!x.lamps) return;
   const L=x.lightState||car3DLightState(null);
   const headI=[0,.45,1.2,2.4][L.head]||0;
-  const braking=L.brake||!!(x.drive&&x.drive.braking);
+  const braking=L.brake||!!x._braking;
   const tailI=braking?2.0:(L.head>0?.5:0);          // 小燈/大燈亮時尾燈跟著亮小燈檔
   const turnOn=L.turn==='hazard';
   x.lamps.forEach(({m,roles,base})=>{
@@ -1624,93 +1634,156 @@ setInterval(()=>{
 },400);
 
 /* ==========================================================================
-   互動預覽 · 模組二：車輛移動（駕駛模式）
+   互動預覽 · 駕駛模式
    --------------------------------------------------------------------------
-   自行車模型：heading' = v · tan(steer) / 軸距。
-   車頭朝 −X，前進向量 = (−cosθ, 0, sinθ)；車身朝向改 root 群組的 rotation.y
-   （模型本身的四元數留給 applyBodyTilt() 的俯仰，兩邊不能混）。
-   輪組自轉只轉 makeWheel 的 spin 子群組（懸吊與卡鉗不跟著轉），
-   自轉軸是輪組自己的 Z（camber/toe 定位後的輪軸）。
-   位置狀態存 CAR3D_DRIVE_POS（keyed by spec.id），render() 重建場景後不歸零。
+   物理全部在 22-sim-vehicle.js，這裡只負責：
+     收集輸入 → 每幀推進模擬 → 把狀態畫到 3D 與 HUD → 餵給引擎聲
+
+   車身朝向改 root 群組的 rotation.y（模型本身的四元數留給 applyBodyTilt()
+   的俯仰，兩邊混用會互相干擾）。輪組自轉只轉 makeWheel 的 spin 子群組。
    ========================================================================== */
-const CAR3D_DRIVE={on:false,follow:false,keys:{},joySteer:0,joyThrottle:0,padThrottle:0,padBrake:0};
-const CAR3D_DRIVE_POS=new Map();
-function car3DDriveState(x){
-  let d=CAR3D_DRIVE_POS.get(x.spec.id);
-  if(!d){d={x:0,z:0,heading:0,speed:0,steer:0,wheelSpin:0,braking:false,prevBraking:false};CAR3D_DRIVE_POS.set(x.spec.id,d);}
-  return d;
-}
-function restoreCar3DDrive(x){
-  const d=car3DDriveState(x);x.drive=d;
-  x.car.position.x=d.x;x.car.position.z=d.z;x.car.rotation.y=d.heading;
-}
-function car3DDriveInputs(){
+const CAR3D_DRIVE={on:false,follow:false,keys:{},joySteer:0,joyThrottle:0,
+  padThrottle:0,padBrake:0,padHandbrake:0,sim:null,hudAt:0};
+
+function car3DInputs(){
   const k=CAR3D_DRIVE.keys;
   const steer=(k.left?1:0)-(k.right?1:0)-CAR3D_DRIVE.joySteer;
   const thr=Math.max(k.up?1:0,CAR3D_DRIVE.padThrottle||0,Math.max(0,CAR3D_DRIVE.joyThrottle));
-  const brk=Math.max(k.down?1:0,CAR3D_DRIVE.padBrake||0,Math.max(0,-CAR3D_DRIVE.joyThrottle));
-  return {steer:Math.max(-1,Math.min(1,steer)),thr:Math.min(1,thr),brk:Math.min(1,brk)};
+  const brake=Math.max(k.down?1:0,CAR3D_DRIVE.padBrake||0,Math.max(0,-CAR3D_DRIVE.joyThrottle));
+  return {
+    steer:Math.max(-1,Math.min(1,steer)),
+    thr:Math.min(1,thr), brake:Math.min(1,brake),
+    handbrake:!!(k.space||CAR3D_DRIVE.padHandbrake),
+    clutch:!!k.clutch,
+  };
 }
-function stepCar3DDrive(x,dt){
-  const d=x.drive||(x.drive=car3DDriveState(x));
-  const inp=car3DDriveInputs(),cfg=car3DBodyConfig(x.spec.id);
-  const wheelbase=Math.max(2,Math.abs((+cfg.rearX||1.25)-(+cfg.frontX||-1.35)));
-  /* 轉向：往目標角平滑，最大 30° */
-  d.steer+=(inp.steer*.52-d.steer)*Math.min(1,dt*9);
-  /* 縱向：油門推進、煞車減速、停住後倒車；空氣阻力 + 滾動阻力 */
-  if(inp.thr>0) d.speed+=8.2*inp.thr*dt;
-  if(inp.brk>0){
-    if(d.speed>.25) d.speed=Math.max(0,d.speed-12*inp.brk*dt);
-    else d.speed-=4.6*inp.brk*dt;
+
+/* 模擬狀態是全域單例：多個場景（前後比較）共用同一台車 */
+function simKey(b){
+  b=b||{};
+  return [b.gearbox,b.finalDrive,b.diff,b.clutch,b.flywheel,
+          (b.gearRatios||[]).join(','),b.tips].join('|');
+}
+function ensureSim(build){
+  if(!CAR3D_DRIVE.sim){
+    CAR3D_DRIVE.sim=createVehicleSim(build||{}, null);
+    CAR3D_DRIVE.sim._key=simKey(build);
   }
-  d.speed-=(d.speed*.30+Math.sign(d.speed)*.45)*dt;
-  if(Math.abs(d.speed)<.05&&!inp.thr&&!inp.brk) d.speed=0;
-  d.speed=Math.max(-7,Math.min(38,d.speed));
-  d.braking=inp.brk>0&&d.speed>.25;
-  /* 自行車模型 */
-  d.heading+=d.speed*Math.tan(d.steer)/wheelbase*dt;
-  d.x+=-Math.cos(d.heading)*d.speed*dt;
-  d.z+= Math.sin(d.heading)*d.speed*dt;
-  x.car.position.x=d.x;x.car.position.z=d.z;x.car.rotation.y=d.heading;
-  /* 輪子：自轉疊在 camber/toe 之後，前輪在束角上加轉向角 */
-  const tireR=Math.max(.2,car3DTireRadius(x.build||{}));
-  d.wheelSpin+=d.speed*dt/tireR;
+  return CAR3D_DRIVE.sim;
+}
+function rebuildSim(build){
+  const old=CAR3D_DRIVE.sim;
+  CAR3D_DRIVE.sim=createVehicleSim(build||{}, null);
+  CAR3D_DRIVE.sim._key=simKey(build);
+  if(old){  // 保留位置與速度，換零件不該把車瞬移回原點
+    const S=CAR3D_DRIVE.sim;
+    Object.assign(S,{x:old.x,z:old.z,heading:old.heading,vx:old.vx,vy:old.vy,yaw:old.yaw,
+      w:old.w.slice(),rpm:old.rpm,running:old.running,starter:old.starter,
+      gear:old.gear,autoMode:old.autoMode,tc:old.tc});
+  }
+  if(EngineAudio.running) EngineAudio.reconfigure(engineAudioConfig(CAR3D_DRIVE.sim));
+  return CAR3D_DRIVE.sim;
+}
+
+function stepCar3DDrive(x,dt){
+  const S=ensureSim(x.build);
+  const input=CAR3D_DRIVE.on?car3DInputs():{steer:0,thr:0,brake:0};
+  /* 未進入駕駛模式時當作空檔，讓使用者可以單純補油聽聲音 */
+  if(!CAR3D_DRIVE.on && S.gear!==0){ S.gear=0; S.shifting=0; }
+  if(CAR3D_DRIVE.on && S.gear===0 && !S.autoMode && input.thr>0) S.gear=1;
+
+  /* 渦輪車放油門觸發洩壓閥 */
+  const prevThr=S._prevThr||0;
+  if(S.cfg.cv.turbo && prevThr>.5 && input.thr<.12 && S.boost>.25 && S.rpm>2600){
+    EngineAudio.bov();
+  }
+  /* 高轉放油門的排氣回火 */
+  if(prevThr>.6 && input.thr<.1 && S.rpm>3800 && Math.random()<.35) EngineAudio.pop();
+  S._prevThr=input.thr;
+
+  /* 固定步長積分：dt 大時多跑幾步，物理才穩 */
+  const steps=Math.max(1,Math.min(8,Math.ceil(dt/0.006)));
+  const h=dt/steps;
+  for(let i=0;i<steps;i++) stepVehicleSim(S,h,input);
+
+  pushEngineAudio(S);
+  applySimToScene(x,S,dt);
+  return S;
+}
+
+function applySimToScene(x,S,dt){
+  if(!x.car) return;
+  /* 自由視角時讓鏡頭跟著平移 —— 保留使用者自己轉好的角度與距離，
+     只把注視點跟著車走。少了這段，一踩油門車就開出畫面外了。 */
+  if(CAR3D_DRIVE.on && !CAR3D_DRIVE.follow && x.controls){
+    const dx=S.x-(x._lastX||0), dz=S.z-(x._lastZ||0);
+    if(dx||dz){
+      x.camera.position.x+=dx; x.camera.position.z+=dz;
+      x.controls.target.x+=dx; x.controls.target.z+=dz;
+      x.controls.update();
+    }
+  }
+  x._lastX=S.x; x._lastZ=S.z;
+  x.car.position.x=S.x; x.car.position.z=S.z; x.car.rotation.y=S.heading;
+  /* 輪子：自轉疊在 camber/toe 之後，前輪另加轉向角 */
   const M=x.THREE.MathUtils;
   const toeF=M.degToRad(+(x.build&&x.build.toeF)||0),toeR=M.degToRad(+(x.build&&x.build.toeR)||0);
   x.wheels.forEach(w=>{
-    const s=w.userData.spin;if(s)s.rotation.z=d.wheelSpin;
-    w.rotation.y=w.userData.side*(w.userData.front?toeF:toeR)+(w.userData.front?d.steer:0);
+    const u=w.userData, idx=u.front?(u.side<0?0:1):(u.side<0?2:3);
+    if(u.spin) u.spin.rotation.z += S.w[idx]*dt;
+    w.rotation.y=u.side*(u.front?toeF:toeR)+(u.front?S.steer:0);
   });
-  /* 地面與主光跟著車走：格線以整格平移（線不會滑動），影子相機跟著車 */
+  /* 車身動態姿態：加速後仰、煞車前傾、過彎側傾 */
+  const body=x.car.userData.simBody||(x.car.userData.simBody=(()=>{
+    let b=null;x.car.traverse(o=>{if(!b&&o.userData.vehicleBody)b=o;});return b;})());
+  if(body){
+    const pitch=Math.max(-.028,Math.min(.028,-S.gForce*0.0032));
+    const roll=Math.max(-.035,Math.min(.035,S.yaw*S.vx*0.0042));
+    body.userData.simPitch=(body.userData.simPitch||0)+(pitch-(body.userData.simPitch||0))*Math.min(1,dt*7);
+    body.userData.simRoll=(body.userData.simRoll||0)+(roll-(body.userData.simRoll||0))*Math.min(1,dt*7);
+    const stance=bodyStance(x.spec,x.build||{});
+    applyBodyTilt(x.THREE,body,stance.tilt+body.userData.simPitch,body.userData.simRoll);
+  }
+  /* 煞車燈：跟著實際煞車 */
+  const braking=S.brake>.08||S.handbrake>0;
+  if(braking!==!!x._braking){ x._braking=braking; applyCar3DLamps(x); }
+  /* 地面、主光與影子跟著車走 */
   const e=x.env;
   if(e){
     const step=e.gridStep||.5;
-    e.grid.position.x=Math.round(d.x/step)*step;
-    e.grid.position.z=Math.round(d.z/step)*step;
-    e.floor.position.x=d.x;e.floor.position.z=d.z;
-    if(e.nightGround){e.nightGround.position.x=d.x;e.nightGround.position.z=d.z;}
-    e.key.position.set(d.x-4.5,7,d.z+5);
-    e.key.target.position.set(d.x,0,d.z);
+    e.grid.position.x=Math.round(S.x/step)*step;
+    e.grid.position.z=Math.round(S.z/step)*step;
+    e.floor.position.x=S.x;e.floor.position.z=S.z;
+    if(e.nightGround){e.nightGround.position.x=S.x;e.nightGround.position.z=S.z;}
+    e.key.position.set(S.x-4.5,7,S.z+5);
+    e.key.target.position.set(S.x,0,S.z);
   }
-  if(d.braking!==d.prevBraking){d.prevBraking=d.braking;applyCar3DLamps(x);}
-  const hud=document.getElementById('driveSpeed');
-  if(hud)hud.textContent=Math.round(Math.abs(d.speed)*3.6);
+  /* HUD 每 60 ms 更新一次就夠，不必每幀動 DOM */
+  const now=performance.now();
+  if(now-CAR3D_DRIVE.hudAt>60){ CAR3D_DRIVE.hudAt=now; updateDriveHUD(S); }
 }
+
 function car3DFollowCam(x,dt){
-  const d=x.drive;if(!d)return;
+  const S=CAR3D_DRIVE.sim; if(!S) return;
   const cam=x.camera;
-  const px=d.x+Math.cos(d.heading)*6.6,pz=d.z-Math.sin(d.heading)*6.6,py=2.5;
-  const a=1-Math.exp(-dt*3.4);
+  /* 鏡頭掛在車後方，但飄移時看向車輛實際行進方向，比較好抓角度 */
+  const look=S.heading+Math.atan2(-S.vy,Math.max(2,Math.abs(S.vx)))*0.55;
+  const dist=6.2+Math.min(3.2,Math.abs(S.vx)*0.11);
+  const px=S.x+Math.cos(look)*dist, pz=S.z-Math.sin(look)*dist;
+  const py=2.3+Math.min(.8,Math.abs(S.vx)*0.012);
+  const a=1-Math.exp(-dt*3.6);
   cam.position.x+=(px-cam.position.x)*a;
   cam.position.y+=(py-cam.position.y)*a;
   cam.position.z+=(pz-cam.position.z)*a;
-  cam.lookAt(d.x,.95,d.z);
+  cam.lookAt(S.x,.95,S.z);
 }
+
 function setCar3DDriveMode(on){
   CAR3D_DRIVE.on=!!on;
   CAR3D_DRIVE.keys={};CAR3D_DRIVE.padThrottle=0;CAR3D_DRIVE.padBrake=0;
-  CAR3D_DRIVE.joySteer=0;CAR3D_DRIVE.joyThrottle=0;
-  CAR3D_INSTANCES.forEach(x=>{if(!x.dead&&on&&x.car)restoreCar3DDrive(x);});
+  CAR3D_DRIVE.padHandbrake=0;CAR3D_DRIVE.joySteer=0;CAR3D_DRIVE.joyThrottle=0;
+  const S=ensureSim(CAR3D_INSTANCES.find(i=>!i.dead)?.build);
+  if(on && S.gear===0) S.gear=1;
   setCar3DFollow(CAR3D_DRIVE.follow);
 }
 function setCar3DFollow(f){
@@ -1718,245 +1791,118 @@ function setCar3DFollow(f){
   const following=CAR3D_DRIVE.on&&CAR3D_DRIVE.follow;
   CAR3D_INSTANCES.forEach(x=>{
     if(x.dead||!x.controls) return;
-    x.controls.enabled=!following;             // 規格：OrbitControls 與跟隨模式會打架
-    if(!following&&x.drive){x.controls.target.set(x.drive.x,.8,x.drive.z);x.controls.update();}
+    x.controls.enabled=!following;   // OrbitControls 與跟隨模式會打架
+    const S=CAR3D_DRIVE.sim;
+    if(!following&&S){x.controls.target.set(S.x,.8,S.z);x.controls.update();}
   });
 }
 function resetCar3DDrive(){
-  CAR3D_DRIVE_POS.clear();
+  const S=CAR3D_DRIVE.sim;
+  if(S){
+    Object.assign(S,{x:0,z:0,heading:0,vx:0,vy:0,yaw:0,w:[0,0,0,0],
+      steer:0,gear:CAR3D_DRIVE.on?1:0,shifting:0,drift:0,speed:0,gForce:0});
+  }
   CAR3D_INSTANCES.forEach(x=>{
     if(x.dead||!x.car) return;
-    x.drive=null;
-    x.car.position.set(0,0,0);x.car.rotation.y=0;
-    x.wheels.forEach(w=>{const s=w.userData.spin;if(s)s.rotation.z=0;});
+    x.car.position.set(0,0,0);x.car.rotation.y=0;x._lastX=0;x._lastZ=0;
+    x.wheels.forEach(w=>{if(w.userData.spin)w.userData.spin.rotation.z=0;});
     if(x.env){
       x.env.grid.position.set(0,0,0);x.env.floor.position.set(0,.005,0);
       if(x.env.nightGround)x.env.nightGround.position.set(0,-.012,0);
       x.env.key.position.set(-4.5,7,5);x.env.key.target.position.set(0,0,0);
     }
-    if(x.build)updateCar3DBuild(x.build);
     const view=CAR3D_VIEWS.get(x.spec.id);
     if(view)applyCar3DView(x,view);
     if(!x.loop)renderCar3DOnce(x);
   });
-  const hud=document.getElementById('driveSpeed');if(hud)hud.textContent='0';
+  updateDriveHUD(S);
 }
-const CAR3D_KEYMAP={ArrowUp:'up',KeyW:'up',ArrowDown:'down',KeyS:'down',ArrowLeft:'left',KeyA:'left',ArrowRight:'right',KeyD:'right'};
+
+/* 換檔（手排）*/
+function car3DShift(dir){
+  const S=CAR3D_DRIVE.sim; if(!S||S.autoMode) return;
+  shiftTo(S, S.gear+dir);
+}
+function toggleCar3DAuto(){
+  const S=ensureSim(); S.autoMode=!S.autoMode;
+  if(S.autoMode && S.gear<1) S.gear=1;
+  return S.autoMode;
+}
+
+const CAR3D_KEYMAP={ArrowUp:'up',KeyW:'up',ArrowDown:'down',KeyS:'down',
+  ArrowLeft:'left',KeyA:'left',ArrowRight:'right',KeyD:'right',Space:'space',ShiftLeft:'clutch'};
 window.addEventListener('keydown',e=>{
   if(!CAR3D_DRIVE.on) return;
   const t=e.target;if(t&&/^(input|textarea|select)$/i.test(t.tagName)) return;
+  if(e.code==='KeyE'||e.code==='BracketRight'){car3DShift(1);e.preventDefault();return;}
+  if(e.code==='KeyQ'||e.code==='BracketLeft'){car3DShift(-1);e.preventDefault();return;}
   const k=CAR3D_KEYMAP[e.code];if(!k) return;
   CAR3D_DRIVE.keys[k]=true;e.preventDefault();
 });
 window.addEventListener('keyup',e=>{const k=CAR3D_KEYMAP[e.code];if(k)CAR3D_DRIVE.keys[k]=false;});
 
-/* ==========================================================================
-   互動預覽 · 模組三：引擎聲（Web Audio 合成）
-   --------------------------------------------------------------------------
-   不用錄音：授權查證成本高、base64 內嵌會撐大單檔，而且固定音檔沒辦法
-   跟轉速即時連動。合成鏈（規格）：
-     鋸齒基頻 @ 點火頻率 f = rpm/60 × (缸數/2)
-       + ×2/×3/×4 諧波（振幅遞減 0.6/0.35/0.2）
-       + 帶通白噪音（進氣／排氣氣流）
-     → 低通（cutoff 隨負載開）→ WaveShaper 輕失真（負載大加重）→ 總音量
-   渦輪車放油門觸發 0.25 s 洩壓閥噪音掃頻。音量/靜音存 localStorage。
-   ========================================================================== */
-const CAR3D_REDLINE={'4G63T':7000,'420A':6500,S50B30:7280,S50B32:7600,S50B30US:6800,S52B32:7000,
-  M42B18:6500,M44B19:6500,M50B20:6500,M50B20TU:6500,M50B25:6500,M50B25TU:6500,
-  M52B20:6500,M52B25:6500,M52B28:6500,M40B16:6000,M40B18:6000,M43B16:6000,M43B18:6000,
-  M41D17:4800,M51D25:4800,M51D25OL:4800};
-function car3DEngineSpec(){
-  const c=typeof car==='function'?car():null;
-  const eng=(c&&typeof carEngine==='function')?carEngine(c):null;
-  const mdl=(c&&typeof mdlById==='function')?mdlById(c.modelId):null;
-  const cyl=(eng&&+eng.cyl)||4;
-  const redline=(eng&&CAR3D_REDLINE[eng.id])||(eng&&eng.diesel?4800:(eng&&eng.cam==='DOHC'?6800:6200));
-  return {cyl,redline,idle:eng&&eng.diesel?760:800,diesel:!!(eng&&eng.diesel),
-          turbo:!!(mdl&&mdl.turbo),name:eng?eng.name:'引擎'};
-}
-const C3AUD={ctx:null,nodes:null,running:false,starting:false,rpm:0,slider:0,hold:0,
-  vol:.7,muted:false,spec:null,raf:0,last:0,startAt:0,bovAt:0,lastThr:0,limitPhase:0};
-try{
-  const s=JSON.parse(localStorage.getItem('garage.c3aud')||'{}');
-  if(Number.isFinite(+s.vol))C3AUD.vol=Math.max(0,Math.min(1,+s.vol));
-  C3AUD.muted=!!s.muted;
-}catch(e){}
-function c3audSave(){try{localStorage.setItem('garage.c3aud',JSON.stringify({vol:C3AUD.vol,muted:C3AUD.muted}));}catch(e){}}
-function c3audGraph(){
-  const ctx=C3AUD.ctx;
-  const master=ctx.createGain();master.gain.value=C3AUD.muted?0:C3AUD.vol;
-  master.connect(ctx.destination);
-  const comp=ctx.createDynamicsCompressor();
-  comp.threshold.value=-16;comp.knee.value=18;comp.ratio.value=8;comp.attack.value=.004;comp.release.value=.16;
-  comp.connect(master);
-  const shaper=ctx.createWaveShaper();
-  const N=1024,curve=new Float32Array(N);
-  for(let i=0;i<N;i++){const u=i/(N-1)*2-1;curve[i]=Math.tanh(2.6*u);}
-  shaper.curve=curve;shaper.oversample='2x';shaper.connect(comp);
-  const pre=ctx.createGain();pre.gain.value=.8;pre.connect(shaper);       // 失真前推量＝負載
-  const lp=ctx.createBiquadFilter();lp.type='lowpass';lp.frequency.value=900;lp.Q.value=.6;lp.connect(pre);
-  const sum=ctx.createGain();sum.gain.value=0;sum.connect(lp);
-  const HARM=[[1,.5],[2,.30],[3,.175],[4,.10]];   // 規格比例 1/.6/.35/.2 × 總縮放 .5
-  const oscs=HARM.map(([n,a],i)=>{
-    const o=ctx.createOscillator();o.type='sawtooth';o.frequency.value=40*n;
-    if(i)o.detune.value=i*4;                       // 些微失諧 → 機械拍頻感
-    const g=ctx.createGain();g.gain.value=a;
-    o.connect(g);g.connect(sum);o.start();
-    return {o,n};
-  });
-  const nbuf=ctx.createBuffer(1,ctx.sampleRate*2,ctx.sampleRate);
-  const arr=nbuf.getChannelData(0);
-  for(let i=0;i<arr.length;i++)arr[i]=Math.random()*2-1;
-  const noise=ctx.createBufferSource();noise.buffer=nbuf;noise.loop=true;
-  const nbp=ctx.createBiquadFilter();nbp.type='bandpass';nbp.frequency.value=900;nbp.Q.value=.7;
-  const ng=ctx.createGain();ng.gain.value=0;
-  noise.connect(nbp);nbp.connect(ng);ng.connect(sum);noise.start();
-  return {master,comp,shaper,pre,lp,sum,oscs,nbuf,nbp,ng};
-}
-/* 洩壓閥：0.25 s 高頻噪音往下掃（渦輪車限定） */
-function c3audBOV(){
-  const ctx=C3AUD.ctx,n=C3AUD.nodes,t=ctx.currentTime;
-  const src=ctx.createBufferSource();src.buffer=n.nbuf;
-  const bp=ctx.createBiquadFilter();bp.type='bandpass';bp.Q.value=5;
-  bp.frequency.setValueAtTime(2600,t);
-  bp.frequency.exponentialRampToValueAtTime(650,t+.25);
-  const g=ctx.createGain();
-  g.gain.setValueAtTime(.0001,t);
-  g.gain.exponentialRampToValueAtTime(.55,t+.03);
-  g.gain.exponentialRampToValueAtTime(.0001,t+.25);
-  src.connect(bp);bp.connect(g);g.connect(n.comp);
-  src.start(t);src.stop(t+.3);
-}
-/* 起動馬達：斷續的低頻脈衝，0.9 s 後點火 */
-function c3audStarter(t0){
-  const ctx=C3AUD.ctx,n=C3AUD.nodes;
-  const o=ctx.createOscillator();o.type='square';o.frequency.value=44;
-  const am=ctx.createOscillator();am.type='sine';am.frequency.value=10.5;
-  const amG=ctx.createGain();amG.gain.value=.5;
-  const g=ctx.createGain();g.gain.value=0;
-  am.connect(amG);amG.connect(g.gain);
-  o.connect(g);g.connect(n.lp);
-  g.gain.setValueAtTime(.0001,t0);
-  g.gain.linearRampToValueAtTime(.5,t0+.08);
-  g.gain.setValueAtTime(.5,t0+.72);
-  g.gain.linearRampToValueAtTime(.0001,t0+.92);
-  o.start(t0);o.stop(t0+1);am.start(t0);am.stop(t0+1);
-}
-function c3audStart(){
-  const AC=window.AudioContext||window.webkitAudioContext;
-  if(!AC){if(typeof toast==='function')toast('這個瀏覽器不支援 Web Audio');return;}
-  if(!C3AUD.ctx)C3AUD.ctx=new AC();
-  if(!C3AUD.nodes)C3AUD.nodes=c3audGraph();
-  C3AUD.ctx.resume();
-  C3AUD.spec=car3DEngineSpec();
-  C3AUD.running=true;C3AUD.starting=true;C3AUD.rpm=0;C3AUD.lastThr=0;
-  const t=C3AUD.ctx.currentTime;
-  C3AUD.startAt=performance.now()/1000;   // 流程計時用牆鐘（ctx 時鐘在背景可能凍結）
-  c3audStarter(t);
-  const g=C3AUD.nodes.sum.gain;
-  g.cancelScheduledValues(t);g.setValueAtTime(.0001,t);
-  g.exponentialRampToValueAtTime(.9,t+1.15);
-  cancelAnimationFrame(C3AUD.raf);C3AUD.last=0;
-  C3AUD.raf=requestAnimationFrame(c3audLoop);
-  c3audUI();
-}
-function c3audStop(quiet){
-  if(!C3AUD.ctx)return;
-  const t=C3AUD.ctx.currentTime;
-  C3AUD.running=false;C3AUD.starting=false;C3AUD.rpm=0;C3AUD.hold=0;
-  cancelAnimationFrame(C3AUD.raf);
-  if(C3AUD.nodes){
-    const g=C3AUD.nodes.sum.gain;
-    g.cancelScheduledValues(t);g.setValueAtTime(Math.max(.0001,g.value),t);
-    g.exponentialRampToValueAtTime(.0001,t+.35);
+/* --------------------------------------------------------------------------
+   引擎啟動／熄火
+   -------------------------------------------------------------------------- */
+async function toggleCar3DEngine(){
+  const S=ensureSim(CAR3D_INSTANCES.find(i=>!i.dead)?.build);
+  if(EngineAudio.running || S.running || S.starter>0){
+    const cur=CAR3D_DRIVE.sim;
+    cur.running=false; cur.starter=0; cur.throttle=0;
+    EngineAudio.stop();
+    engineUIRefresh();
+    return;
   }
-  setTimeout(()=>{if(!C3AUD.running&&C3AUD.ctx&&C3AUD.ctx.state==='running')C3AUD.ctx.suspend();},500);
-  const el=document.getElementById('c3RpmVal');if(el)el.textContent='0';
-  const bar=document.getElementById('c3RpmBar');if(bar)bar.style.width='0';
-  if(!quiet)c3audUI();
-}
-function toggleCar3DEngine(){C3AUD.running?c3audStop():c3audStart();}
-function c3audLoop(ts){
-  if(!C3AUD.running)return;
-  C3AUD.raf=requestAnimationFrame(c3audLoop);
-  const dt=Math.min(.25,C3AUD.last?(ts-C3AUD.last)/1000:.016);C3AUD.last=ts;
-  const S=C3AUD.spec,n=C3AUD.nodes,ctx=C3AUD.ctx,t=ctx.currentTime;
-  const sinceStart=performance.now()/1000-C3AUD.startAt;
-  let thr=Math.max(C3AUD.hold,C3AUD.slider,CAR3D_DRIVE.on?car3DDriveInputs().thr:0);
-  const idle=S.idle,red=S.redline;
-  if(C3AUD.starting){
-    if(sinceStart<.85)C3AUD.rpm=90+sinceStart*260;   // 起動馬達拖轉
-    else{C3AUD.starting=false;C3AUD.rpm=360;}
-  }else{
-    let target=idle+thr*(red-idle);
-    if(sinceStart<1.6)target=Math.max(target,idle+(1.6-sinceStart)*430);  // 點火竄升再回落
-    if(CAR3D_DRIVE.on){                              // 駕駛模式：車速墊高轉速（掛檔感）
-      let speed=0;
-      CAR3D_INSTANCES.some(x=>{if(!x.dead&&x.drive){speed=Math.abs(x.drive.speed);return true;}return false;});
-      target=Math.max(target,Math.min(red*.85,idle+speed*95));
-    }
-    const rise=(red-idle)/.85,fall=(red-idle)/1.6;
-    if(target>C3AUD.rpm)C3AUD.rpm=Math.min(target,C3AUD.rpm+rise*dt*(.35+.65*thr));
-    else C3AUD.rpm=Math.max(target,C3AUD.rpm-fall*dt);
-    if(C3AUD.rpm>=red-30&&thr>.85){                  // 斷油限轉跳動
-      C3AUD.limitPhase+=dt*26;
-      C3AUD.rpm=red-30-Math.max(0,Math.sin(C3AUD.limitPhase))*150;
-    }
+  const ok=await EngineAudio.start(engineAudioConfig(S));
+  if(!ok){
+    if(typeof toast==='function') toast(EngineAudio.unsupported?'這個瀏覽器不支援 AudioWorklet':'音訊啟動失敗');
+    return;
   }
-  const f=C3AUD.rpm/60*(S.cyl/2);                    // 點火頻率
-  n.oscs.forEach(({o,n:h})=>o.frequency.setTargetAtTime(Math.min(4200,Math.max(8,f*h)),t,.02));
-  const load=Math.min(1,thr*.8+.2*(C3AUD.rpm/red));
-  const tips=(typeof car==='function'&&car()&&car().build&&car().build.tips)||'single';
-  const tipF={none:.9,single:1,dual:1.12,quad:1.3}[tips]||1;   // 規格：四出比單出開得更亮
-  n.lp.frequency.setTargetAtTime(Math.min(11000,(260+f*3.4+4200*load)*tipF),t,.04);
-  n.pre.gain.setTargetAtTime(.55+1.5*load+(S.diesel?.35:0),t,.05);
-  n.ng.gain.setTargetAtTime(.02+.11*thr+.02*(C3AUD.rpm/red)+(S.diesel?.05:0)+(S.turbo?.05*thr:0),t,.05);
-  n.nbp.frequency.setTargetAtTime(500+C3AUD.rpm*.5+(S.turbo?thr*1800:0),t,.05);
-  if(sinceStart>1.2)n.sum.gain.setTargetAtTime(.5+.45*load,t,.08);
-  if(S.turbo&&C3AUD.lastThr>.5&&thr<.15&&C3AUD.rpm>2600&&t-C3AUD.bovAt>.9){C3AUD.bovAt=t;c3audBOV();}
-  C3AUD.lastThr+=(thr-C3AUD.lastThr)*Math.min(1,dt*6);
-  const el=document.getElementById('c3RpmVal');
-  if(el){
-    el.textContent=Math.round(C3AUD.rpm);
-    const bar=document.getElementById('c3RpmBar');
-    if(bar){
-      const p=Math.min(100,C3AUD.rpm/red*100);
-      bar.style.width=p+'%';
-      bar.style.background=p>92?'var(--red)':p>78?'var(--orange)':'var(--tech)';
-    }
-  }
+  /* 起動：交給物理模型的起動馬達，0.9 秒後點著 */
+  const cur=CAR3D_DRIVE.sim;
+  cur.running=false; cur.rpm=0; cur.starter=0.9;
+  engineUIRefresh();
 }
-function setCar3DVolume(v){
-  C3AUD.vol=Math.max(0,Math.min(1,+v||0));
-  if(C3AUD.nodes&&!C3AUD.muted)C3AUD.nodes.master.gain.setTargetAtTime(C3AUD.vol,C3AUD.ctx.currentTime,.03);
-  c3audSave();
+
+/* 沒進駕駛模式時，油門直接推轉速（空檔補油） */
+function setCar3DThrottle(v){
+  const S=ensureSim(); S._sliderThr=Math.max(0,Math.min(1,+v||0));
 }
-function toggleCar3DMute(){
-  C3AUD.muted=!C3AUD.muted;
-  if(C3AUD.nodes)C3AUD.nodes.master.gain.setTargetAtTime(C3AUD.muted?0:C3AUD.vol,C3AUD.ctx.currentTime,.02);
-  c3audSave();c3audUI();
+function holdCar3DThrottle(on){
+  const S=ensureSim(); S._holdThr=on?1:0;
 }
-function setCar3DThrottle(v){C3AUD.slider=Math.max(0,Math.min(1,+v||0));}
-function holdCar3DThrottle(on){C3AUD.hold=on?1:0;}
-function c3audUI(){
-  const b=document.getElementById('c3EngineBtn');
-  if(b){b.textContent=C3AUD.running?'熄火':'發動引擎';b.classList.toggle('pri',!C3AUD.running);}
-  const m=document.getElementById('c3MuteBtn');
-  if(m)m.textContent=C3AUD.muted?'取消靜音':'靜音';
-  const lbl=document.getElementById('c3EngineName');
-  if(lbl){
-    const s=car3DEngineSpec();
-    lbl.textContent=`${s.name} · ${s.cyl} 缸 · 紅線 ${s.redline} rpm${s.turbo?' · 渦輪（放油門有洩壓閥）':''}`;
-  }
-}
-/* 規格：切分頁要 suspend()，不然背景會一直發聲；離開設計預覽頁直接熄火 */
-document.addEventListener('visibilitychange',()=>{
-  if(!C3AUD.ctx)return;
-  if(document.hidden){if(C3AUD.ctx.state==='running')C3AUD.ctx.suspend();}
-  else if(C3AUD.running){C3AUD.ctx.resume();C3AUD.last=0;}
-});
+/* 空檔補油：把滑桿與按住的值餵進輸入。
+   ★ dt 一定要用真實經過時間 ★ 寫死 1/60 的話，畫面掉到 20fps 時整個模擬
+   會變成慢動作（引擎起動要花三倍時間、車速對不上），在效能較差的機器上很明顯。 */
+(function neutralThrottleLoop(){
+  let last=0;
+  const tick=(ts)=>{
+    requestAnimationFrame(tick);
+    const S=CAR3D_DRIVE.sim;
+    const dt=Math.min(.12, last?(ts-last)/1000:1/60);
+    last=ts;
+    if(!S||CAR3D_DRIVE.on||dt<=0) return;
+    const thr=Math.max(S._sliderThr||0,S._holdThr||0);
+    const steps=Math.max(1,Math.min(10,Math.ceil(dt/0.006)));
+    const h=dt/steps;
+    for(let i=0;i<steps;i++) stepVehicleSim(S,h,{steer:0,thr,brake:0});
+    pushEngineAudio(S);
+    const now=performance.now();
+    if(now-CAR3D_DRIVE.hudAt>60){CAR3D_DRIVE.hudAt=now;updateDriveHUD(S);}
+  };
+  requestAnimationFrame(tick);
+})();
+
+function setCar3DVolume(v){ EngineAudio.setVolume(v); }
+function toggleCar3DMute(){ EngineAudio.toggleMute(); engineUIRefresh(); }
+
+/* 離開設計預覽頁自動熄火 */
 window.addEventListener('hashchange',()=>{
-  if(C3AUD.running&&!String(location.hash).startsWith('#build/design'))c3audStop(true);
+  if(EngineAudio.running&&!String(location.hash).startsWith('#build/design')){
+    const S=CAR3D_DRIVE.sim; if(S) S.running=false;
+    EngineAudio.stop();
+  }
 });
+
 
 const carSVG=carPhoto;

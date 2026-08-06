@@ -1258,6 +1258,328 @@ function rimFitmentIsAuto(build){
   return !(j!==null&&j>0) || e===null;
 }
 
+/* ===== 12-data-drivetrain.js ===== */
+/* ==========================================================================
+   傳動系統資料：變速箱齒比 / 終傳比 / 差速器 / 離合器 / 飛輪
+   --------------------------------------------------------------------------
+   來源分級沿用本專案慣例：
+     oem       原廠文件或原廠新聞稿
+     trade     專業同業刊物（例如 ATRA GEARS，非原廠但屬業界技術文獻）
+     vendor    改裝品製造商或經銷商公布值
+     community 論壇／維基共識
+     est       ★估算值★ —— 查無公開規格，由物理推算或同級品推估，僅供模擬使用
+
+   ★ 重要原則：查不到就標「查無可靠來源」，不編造看起來合理的數字。★
+   幾個常見誤解在下面各自註明（2G 渦輪是 T25 不是 14b、DSM 終傳是多段減速、
+   E36 的「可變 M 差速器」是 E46 才有的東西）。
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   變速箱
+   -------------------------------------------------------------------------- */
+const GEARBOXES = [
+  /* ---- BMW E36 ---- */
+  {id:'g-250g', plat:'e36', brand:'Getrag', name:'S5D 250G', type:'手排', gears:[4.23,2.52,1.66,1.22,1.00], rev:4.04,
+   nm:250, conf:'community', src:'racegerman',
+   fits:'318i（1996–98）／320i／323i／325i',
+   note:'S5D 200G（316i／早期 318i）目前查到的所有來源都列出與 250G 完全相同的齒比，差異只在扭力容許值與軸件強度，因此本表併為一項。倒檔另有 3.07 的說法（一個來源），本表採多數的 4.04。'},
+  {id:'g-320z', plat:'e36', brand:'ZF', name:'S5D 320Z（S5-31）', type:'手排', gears:[4.21,2.49,1.66,1.24,1.00], rev:3.89,
+   nm:320, conf:'community', src:'wiki_zf531', oe:true,
+   fits:'328i、M3（1995/09 後）',
+   note:'與 310Z 齒比相同，1995/09 起改為強化設計，扭力容許值 310 → 320 Nm。各來源第一檔在 4.20–4.21 之間、倒檔 3.85–3.89，差距 0.5% 以內。'},
+  {id:'g-420g', plat:'e36', brand:'Getrag', name:'S6S 420G', type:'手排', gears:[4.227,2.528,1.669,1.226,1.000,0.828], rev:3.746,
+   nm:499, conf:'community', src:'wiki_420g',
+   fits:'M3 3.2（歐規，北美無此配置）',
+   note:'六速。扭力容許值 499 Nm，箱體約 49 kg。第六檔 0.828 是超比檔，巡航轉速明顯下降。'},
+  {id:'g-4l30e', plat:'e36', brand:'GM', name:'A4S 310R／270R（4L30-E）', type:'自排', gears:[2.86,1.62,1.00,0.72], rev:2.00,
+   nm:350, conf:'community', src:'buildjournal', auto:true,
+   fits:'318i／325i／328i（1995/09 前）自排',
+   note:'⚠ 齒比有爭議：E36 專屬來源給 2.86/1.62，但 4L30-E 的通用資料把 2.86/1.62 歸給 Isuzu 版、把 2.400/1.467 歸給 Opel/BMW 版。本表採兩個 E36 專屬來源的數字。'},
+  {id:'g-5hp18', plat:'e36', brand:'ZF', name:'A5S 310Z（5HP18）', type:'自排', gears:[3.665,1.999,1.407,1.000,0.742], rev:4.096,
+   nm:310, conf:'community', src:'gearboxlist', auto:true,
+   fits:'328i、M3（北美自排）',
+   note:'五速自排。扭力容許值 310 Nm。變矩器失速轉速查無可靠來源。'},
+  {id:'g-e36-close', plat:'e36', brand:'—', name:'賽車用密齒比（示意）', type:'手排', gears:[2.99,2.06,1.58,1.25,1.00], rev:3.46,
+   nm:450, conf:'est', fits:'賽道用途',
+   note:'★估算值★ 這不是特定商品的規格。市售 E36 密齒比套件（Getrag／Drenth／Quaife 等）齒比依訂製而異且多半不公開，本項只是給模擬用的典型密齒比形狀：一檔拉長、檔位落差縮小。要當真實規格用請以廠商實際型錄為準。'},
+
+  /* ---- Mitsubishi Eclipse 2G ---- */
+  {id:'g-w5m33', plat:'dsm2g', brand:'Mitsubishi', name:'W5M33', type:'手排', gears:[3.083,1.684,1.115,0.833,0.666], rev:3.166,
+   nm:null, conf:'trade', src:'atra_gears', oe:true,
+   fits:'GSX／Talon TSi AWD（4G63T AWD）',
+   note:'三個獨立來源在二～五檔完全一致。三檔另有 1.160 的說法（一個來源），但該值與 Evo III 的規格相同，研判是跨欄位污染，本表採 1.115。'},
+  {id:'g-f5m33', plat:'dsm2g', brand:'Mitsubishi', name:'F5M33', type:'手排', gears:[3.090,1.833,1.217,0.888,0.741], rev:3.166,
+   nm:null, conf:'trade', src:'atra_gears', oe:true,
+   fits:'GS-T／Talon TSi（4G63T FWD）',
+   note:'兩個獨立來源分別以「各檔齒比」與「總減速比 ÷ 終傳」推導，結果完全吻合。'},
+  {id:'g-f5mc1', plat:'dsm2g', brand:'New Venture', name:'F5MC1（NVT350）', type:'手排', gears:[3.54,2.13,1.36,1.03,0.81], rev:null,
+   nm:null, conf:'community', src:'dsmtuners', fits:'RS／GS（420A 自然進氣）',
+   note:'⚠ 低可信度：唯一來源的討論串被版主標註含有錯誤。這組齒比與 Chrysler／Neon 的 T350 相同，與此變速箱的 Chrysler 血統相符，故仍列出但請勿當規格引用。倒檔查無可靠來源。'},
+  {id:'g-w4a33', plat:'dsm2g', brand:'Mitsubishi', name:'W4A33／F4A33', type:'自排', gears:[2.551,1.488,1.000,0.685], rev:2.176,
+   nm:null, conf:'community', src:'dsmtuners', auto:true, fits:'GSX／GS-T 自排',
+   note:'FWD 與 AWD 齒比相同，差別在終傳（FWD 4.422／AWD 3.957）。來源引用原廠銷售型錄。'},
+];
+
+/* --------------------------------------------------------------------------
+   終傳比
+   --------------------------------------------------------------------------
+   E36 的「3.45 與 3.46」其實是同一組齒輪：環齒輪代號 H41 = 38:11 = 3.4545，
+   不同來源四捨五入方式不同而已。物理計算一律用真實齒數比。
+   -------------------------------------------------------------------------- */
+const FINAL_DRIVES = [
+  /* ---- E36：ratio 用齒數比算出的真值 ---- */
+  {id:'fd-279', plat:'e36', ratio:2.7857, label:'2.79', code:'H7（39:14）', case:'188mm', oe:true, conf:'vendor', src:'srs_concept', use:'長腳，極速取向'},
+  {id:'fd-293', plat:'e36', ratio:2.93,   label:'2.93', code:'—',          case:'188mm', oe:true, conf:'community', src:'buildjournal', use:'323i／328i 手排'},
+  {id:'fd-307', plat:'e36', ratio:3.07,   label:'3.07', code:'—',          case:'188mm', oe:true, conf:'community', src:'buildjournal', use:'328i 自排（歐規）'},
+  {id:'fd-315', plat:'e36', ratio:3.15,   label:'3.15', code:'—',          case:'188mm', oe:true, conf:'community', src:'buildjournal', use:'325i、M3 3.0 — 常見 LSD 配置'},
+  {id:'fd-323', plat:'e36', ratio:3.23,   label:'3.23', code:'—',          case:'188/210mm', oe:true, conf:'vendor', src:'buildjournal', use:'M3（北美 96–99）、歐規 M3 3.2'},
+  {id:'fd-338', plat:'e36', ratio:3.3846, label:'3.38', code:'H17（44:13）', case:'168/188mm', oe:true, conf:'vendor', src:'srs_concept', use:'318is（歐規）、M3 自排'},
+  {id:'fd-345', plat:'e36', ratio:3.4545, label:'3.45', code:'H41（38:11）', case:'168mm', oe:true, conf:'vendor', src:'srs_concept', use:'318i／320i。有些資料寫 3.46，是同一組齒輪'},
+  {id:'fd-364', plat:'e36', ratio:3.64,   label:'3.64', code:'H9',          case:'188mm', oe:true, conf:'vendor', src:'srs_concept', use:'323i 自排（歐規）'},
+  {id:'fd-391', plat:'e36', ratio:3.9091, label:'3.91', code:'H2（43:11）',  case:'188mm', oe:true, conf:'vendor', src:'srs_concept', use:'北美六缸自排 — 常見 LSD 來源'},
+  {id:'fd-410', plat:'e36', ratio:4.100,  label:'4.10', code:'H1（41:10）',  case:'188mm', oe:false, conf:'vendor', src:'driftshop', use:'★非原廠★ 188mm 改裝短齒比組（E30 才是原廠配置）'},
+  {id:'fd-427', plat:'e36', ratio:4.2727, label:'4.27', code:'H8（47:11）',  case:'168mm', oe:false, conf:'vendor', src:'garagistic', use:'★非原廠★ E30 318ic 的原廠比，E36 需移植'},
+  {id:'fd-444', plat:'e36', ratio:4.4444, label:'4.44', code:'H12（40:9）',  case:'168mm', oe:true, conf:'vendor', src:'srs_concept', use:'316i／318i／318ti 自排'},
+
+  /* ---- Eclipse：AWD 是多段減速，這裡的 ratio 是「等效總終傳」---- */
+  {id:'fd-4153', plat:'dsm2g', ratio:4.153, label:'4.153', code:'單段', case:'FWD', oe:true, conf:'trade', src:'atra_gears', use:'GS-T（FWD 渦輪）'},
+  {id:'fd-4929', plat:'dsm2g', ratio:4.929, label:'4.929', code:'1.275 × 3.866', case:'AWD', oe:true, conf:'community', src:'dsmtuners', use:'GSX（1996/06 前）— 前差速器環齒輪 58 齒',
+   stages:{primary:1.275, front:3.866, transfer:1.090, rear:3.545}},
+  {id:'fd-4845', plat:'dsm2g', ratio:4.845, label:'4.845', code:'1.275 × 3.800', case:'AWD', oe:true, conf:'community', src:'dsmtuners', use:'GSX（1996/07 後）— 前差速器環齒輪 57 齒',
+   stages:{primary:1.275, front:3.800, transfer:1.074, rear:3.545}},
+  {id:'fd-3957', plat:'dsm2g', ratio:3.957, label:'3.957', code:'單段', case:'AWD 自排', oe:true, conf:'community', src:'dsmtuners', use:'GSX 自排'},
+  {id:'fd-4422', plat:'dsm2g', ratio:4.422, label:'4.422', code:'單段', case:'FWD 自排', oe:true, conf:'community', src:'dsmtuners', use:'GS-T 自排'},
+];
+
+/* --------------------------------------------------------------------------
+   差速器（LSD）
+   --------------------------------------------------------------------------
+   模擬用的三個數字：
+     lockA  加速側鎖定率（0–1）—— 可跨傳到有抓地力那一輪的扭力比例
+     lockD  減速側鎖定率（0–1）—— 1-way 為 0，2-way 與加速側相同
+     pre    預壓／脫離扭力（Nm）—— 直線行駛時就存在的基本鎖定
+
+   ★ 鎖定率的定義陷阱（來源明確指出）★
+   「25% 鎖定」是相對於「輸入扭力」而非固定值：同一顆 25% 差速器裝在 240 Nm 的
+   引擎上，跨傳能力就比裝在 360 Nm 引擎上更顯著。物理模型已照這個定義實作。
+
+   ★ 常見誤解 ★ BMW 的「可變 M 差速器」（能把近乎 100% 扭力送到單輪的
+   剪切泵式差速器）是 2000 年 6 月發表、給 E46 M3 用的。E36 M3 是傳統的
+   25% 多片式 LSD。
+   -------------------------------------------------------------------------- */
+const DIFFS = [
+  /* ---- E36 ---- */
+  {id:'d-open', plat:'e36', brand:'原廠', name:'開放式差速器', kind:'open', lockA:0, lockD:0, pre:0,
+   ways:0, conf:'community', src:'racegerman',
+   desc:'非 M 車系的基本配置。單邊失去抓地力時扭力全部流失，出彎內輪容易空轉。'},
+  {id:'d-oem25', plat:'e36', brand:'BMW', name:'原廠 LSD（25%）', kind:'clutch', lockA:.25, lockD:.25, pre:40,
+   ways:2, conf:'oem', src:'bmw_mdiff',
+   desc:'多片式（Salisbury），2 片摩擦片、45° 斜坡，加減速對稱。BMW 官方新聞稿描述為「最高 25%」。M3 全車系標配，325i 等亦有選配。'},
+  {id:'d-40', plat:'e36', brand:'RacingDiffs', name:'40% 升級（3 片）', kind:'clutch', lockA:.40, lockD:.40, pre:47,
+   ways:2, conf:'vendor', src:'racingdiffs',
+   desc:'原廠殼體內加到 3 片摩擦片、維持 45° 斜坡，鎖定率 25% → 40%。不需更換整顆差速器。'},
+  {id:'d-95', plat:'e36', brand:'RacingDiffs', name:'95% 強鎖（4 片／30°）', kind:'clutch', lockA:.95, lockD:.95, pre:90,
+   ways:2, conf:'vendor', src:'racingdiffs',
+   desc:'4 片摩擦片配 30° 斜坡。斜坡角越小 → 壓環軸向推力越大 → 鎖定越強。接近直結，市區低速會有明顯的內外輪拉扯。'},
+  {id:'d-kaaz15', plat:'e36', brand:'Kaaz', name:'Kaaz 1.5way（12 片）', kind:'clutch', lockA:.40, lockD:.25, pre:100,
+   ways:1.5, conf:'vendor', src:'kaaz_dbw3010',
+   desc:'E36 六缸專用（DBW3010），12 片摩擦片。原廠未公布鎖定率與斜坡角，此處採用同業公開的通用對照：1.5way 約 35°/45° → 加速 40%、減速 25%。預壓取賽道用途的典型值。',
+   est:true},
+  {id:'d-quaife', plat:'e36', brand:'Quaife', name:'Quaife ATB（扭力感應）', kind:'helical', lockA:.60, lockD:.60, pre:0,
+   ways:2, conf:'est', src:'quaife_tech',
+   desc:'★鎖定率為估算★ Quaife 官方明文拒絕公布扭力偏壓比（TBR），理由是螺旋角、齒形、行星齒數與車型都會影響表現。本模型採 TBR 2.5:1（換算約 60%），是同型螺旋齒差速器的常見區間，不是 Quaife 的規格。特性：無摩擦片、免保養、單輪完全離地時失效。',
+   est:true},
+  {id:'d-osgiken', plat:'e36', brand:'OS Giken', name:'OS Giken Super Lock', kind:'clutch', lockA:.90, lockD:.60, pre:60,
+   ways:1.5, conf:'est', src:'osgiken',
+   desc:'★數值為估算★ 原廠只公布「可達 100% 鎖定但作動線性」與最多 28 片的結構，未公布斜坡角、初期扭力與 way 數對照。此處以其宣稱特性推估。多片結構的漸進性是其賣點，鎖定強但不像純機械鎖那樣突兀。',
+   est:true},
+
+  /* ---- Eclipse 2G ---- */
+  {id:'d-ecl-open', plat:'dsm2g', brand:'原廠', name:'開放式（前軸）', kind:'open', lockA:0, lockD:0, pre:0,
+   ways:0, conf:'community', src:'dsmtuners',
+   desc:'DSM 全車系、全年份的前差速器都是開放式，原廠從未提供前 LSD。FWD 的 GS-T 出彎內輪空轉（扭力轉向）就是這個原因。'},
+  {id:'d-ecl-vlsd', plat:'dsm2g', brand:'Mitsubishi', name:'原廠黏性 LSD（後軸）', kind:'viscous', lockA:.20, lockD:.20, pre:25,
+   ways:2, conf:'est', src:'dsmtuners',
+   desc:'★數值為估算★ 僅 AWD 車型的後軸，且配備與否依車輛個體而定（門柱橘色貼紙或差速器上的 Viscous LSD 銘板可判別）。原廠未公布黏性接合的鎖定曲線，此處以黏性式的一般行為推估：需要轉速差才產生鎖定，反應偏慢。',
+   est:true},
+  {id:'d-ecl-quaife', plat:'dsm2g', brand:'Quaife', name:'Quaife ATB（前軸）', kind:'helical', lockA:.60, lockD:.60, pre:0,
+   ways:2, conf:'est', src:'quaife_tech',
+   desc:'★鎖定率為估算★ AWD 用 QDH8B（25 齒花鍵）、FWD 用 QDH7B（27 齒花鍵）。同樣地，Quaife 不公布 TBR，60% 是通用估算。裝在前軸能大幅改善 4G63T 出彎的內輪空轉。',
+   est:true},
+  {id:'d-ecl-kaaz', plat:'dsm2g', brand:'Kaaz', name:'Kaaz SuperQ 1.5way（前軸）', kind:'clutch', lockA:.40, lockD:.25, pre:60,
+   ways:1.5, conf:'vendor', src:'kaaz_dbm2010',
+   desc:'DBM2010，前差速器用。這是資料最完整的一顆：原廠公布初期扭力 5.0–7.5 kg·m（約 49–74 Nm）、凸輪角 45°×20°、12 片摩擦片。鎖定率未公布，依 1.5way 通用對照推估。DSM 用的 Kaaz 已停產。'},
+  {id:'d-ecl-cusco', plat:'dsm2g', brand:'Cusco', name:'Cusco Type-RS 1.5way（後軸）', kind:'clutch', lockA:.40, lockD:.25, pre:35,
+   ways:1.5, conf:'est', src:'cusco_141',
+   desc:'★預壓為估算★ LSD 141 L15，後差速器用，另有 2way 版本。原廠只說明「RS 設計的初期扭力比傳統錐盤式低 50–70%」，未給絕對值，故預壓取低值。',
+   est:true},
+];
+
+/* --------------------------------------------------------------------------
+   離合器
+   -------------------------------------------------------------------------- */
+const CLUTCHES = [
+  /* ---- E36 ---- */
+  {id:'c-oem', plat:'e36', brand:'原廠', name:'原廠離合器', nm:350, kind:'single', conf:'est', src:'turner_spec',
+   desc:'★容許扭力為推估★ BMW／Sachs／LuK 都未公布原廠件的扭力容許值。此處取 350 Nm，理由是 Sachs 的強化替換品標示 480 Nm、SPEC 入門的 Stage 1 為 386 Nm，原廠應在其下。改裝店的經驗是 S52 上到 300 hp 仍只偶爾打滑。',
+   est:true},
+  {id:'c-sachs', plat:'e36', brand:'Sachs', name:'Sachs Performance 240mm', nm:480, kind:'single', conf:'vendor', src:'sachs_perf',
+   desc:'單片強化，原廠等級的操作手感，接合線性。適合原廠動力到輕度改裝。'},
+  {id:'c-spec2', plat:'e36', brand:'SPEC', name:'SPEC Stage 2', nm:454, kind:'single', conf:'vendor', src:'spec_e36',
+   desc:'街道／直線兼用。SPEC 的 E36 M3 全階梯：Stage 1 386 / 2 454 / 2+ 502 / 3 569 / 3+ 633 / 4 569 / 5 752 Nm。'},
+  {id:'c-spec3', plat:'e36', brand:'SPEC', name:'SPEC Stage 3', nm:569, kind:'single', conf:'vendor', src:'spec_e36',
+   desc:'街道可用的上限。踏板變重、接合行程縮短。'},
+  {id:'c-osgiken', plat:'e36', brand:'OS Giken', name:'OS Giken GT 雙片', nm:881, kind:'twin', conf:'vendor', src:'osgiken_bm156',
+   desc:'雙片式（GT2CD）。慣量大幅降低，升轉極快，但低速接合難度高、噪音明顯，純街道車不建議。'},
+
+  /* ---- Eclipse ---- */
+  {id:'c-ecl-oem', plat:'dsm2g', brand:'原廠', name:'原廠離合器', nm:343, kind:'single', conf:'est', src:'act_dsm',
+   desc:'★容許扭力為推算★ 無來源直接公布。由 ACT 三款產品各自標示的「較原廠增加 27% / 64% / 109%」反推，三者得到 252／253／254 lb-ft，一致性極高，換算約 343 Nm。'},
+  {id:'c-ecl-act', plat:'dsm2g', brand:'ACT', name:'ACT HD 街道用', nm:434, kind:'single', conf:'vendor', src:'act_dsm',
+   desc:'MB1-HDSS，較原廠 +27%。彈簧式從動盤，街道行駛品質接近原廠。'},
+  {id:'c-ecl-spec2', plat:'dsm2g', brand:'SPEC', name:'SPEC Stage 2', nm:542, kind:'single', conf:'vendor', src:'spec_dsm',
+   desc:'SPEC 的 4G63 全階梯：Stage 1 475 / 2 542 / 2+ 607 / 3 645 / 3+ 751 / 4 637 / 5 907 Nm。（Stage 4 低於 3+ 不是筆誤，是不同摩擦材料。）'},
+  {id:'c-ecl-spec3', plat:'dsm2g', brand:'SPEC', name:'SPEC Stage 3', nm:645, kind:'single', conf:'vendor', src:'spec_dsm',
+   desc:'陶瓷材質，接合突兀，適合已上大渦輪的車。'},
+  {id:'c-ecl-twin', plat:'dsm2g', brand:'ACT', name:'ACT T1R 雙片', nm:1044, kind:'twin', conf:'vendor', src:'act_twin',
+   desc:'雙片式競技用。4G63T 大馬力的常見選擇。'},
+];
+
+/* --------------------------------------------------------------------------
+   飛輪
+   --------------------------------------------------------------------------
+   慣量 I 由質量推算：I ≈ k · m · r²，離合器面半徑取 0.12 m，
+   k 取 0.55（實心圓盤 0.5，外緣加厚的齒圈使其略高）。★推算值★
+   沒有任何廠商公布轉動慣量，但飛輪的「質量」才是使用者看得到的規格，
+   慣量只是模型內部用的中間值，故以推算處理並標明。
+   -------------------------------------------------------------------------- */
+const FLYWHEELS = [
+  {id:'f-oem-e36', plat:'e36', brand:'原廠', name:'原廠雙質量飛輪', kg:11.34, kind:'dual', conf:'vendor', src:'turner_fw',
+   desc:'E36 六缸全車系原廠皆為雙質量（DMF）。吸震好、怠速安靜，但慣量大、升轉慢。另有 25.5 lb（11.57 kg）的標示版本。'},
+  {id:'f-ecs', plat:'e36', brand:'ECS', name:'ECS 輕量鋼製', kg:7.51, kind:'single', conf:'vendor', src:'turner_fw',
+   desc:'較原廠輕約 34%。單質量，換檔時會多出一些齒輪敲擊聲。'},
+  {id:'f-act-e36', plat:'e36', brand:'ACT', name:'ACT XACT Streetlite', kg:6.89, kind:'single', conf:'vendor', src:'turner_fw',
+   desc:'鋼製輕量化，街道與賽道折衷。'},
+  {id:'f-jbr', plat:'e36', brand:'JB Racing', name:'JB Racing 鋁合金', kg:4.54, kind:'single', conf:'vendor', src:'jbracing',
+   desc:'較原廠輕 60%，鋁合金本體配可更換的鋼製摩擦面。空車補油的升轉速度差異非常明顯，但低速換檔要更用心。'},
+
+  {id:'f-oem-ecl', plat:'dsm2g', brand:'原廠', name:'原廠飛輪', kg:8.6, kind:'single', conf:'community', src:'dsmtuners_fw',
+   desc:'實測值 18–20 lb（8.2–9.1 kg），此處取中間值。原廠即為單質量。'},
+  {id:'f-act-ecl', plat:'dsm2g', brand:'ACT', name:'ACT StreetLite 鉻鉬鋼', kg:5.26, kind:'single', conf:'vendor', src:'act_fw',
+   desc:'AWD 用 11.6 lb；FWD 版本略重（12.3–12.5 lb）。'},
+  {id:'f-fidanza', plat:'dsm2g', brand:'Fidanza', name:'Fidanza 鋁合金', kg:3.63, kind:'single', conf:'vendor', src:'fidanza_dsm',
+   desc:'AWD 六螺栓與七螺栓皆為 8.0 lb，FWD 七螺栓 8.5 lb。4G63T 常見的輕量化選擇。'},
+];
+
+/* 飛輪慣量推算（kg·m²）：I ≈ 0.55 · m · r²，r = 0.12 m */
+function flywheelInertia(kg){ return 0.55*(+kg||9)*0.12*0.12; }
+
+/* --------------------------------------------------------------------------
+   查詢函式
+   -------------------------------------------------------------------------- */
+const gearboxesOf = c => GEARBOXES.filter(x=>x.plat===platOf(c));
+const finalDrivesOf = c => FINAL_DRIVES.filter(x=>x.plat===platOf(c));
+const diffsOf = c => DIFFS.filter(x=>x.plat===platOf(c));
+const clutchesOf = c => CLUTCHES.filter(x=>x.plat===platOf(c));
+const flywheelsOf = c => FLYWHEELS.filter(x=>x.plat===platOf(c));
+const gearboxById = id => GEARBOXES.find(x=>x.id===id);
+const finalDriveById = id => FINAL_DRIVES.find(x=>x.id===id);
+const diffById = id => DIFFS.find(x=>x.id===id);
+const clutchById = id => CLUTCHES.find(x=>x.id===id);
+const flywheelById = id => FLYWHEELS.find(x=>x.id===id);
+
+/* 這台車的原廠傳動組合 */
+function stockDrivetrain(c){
+  const plat = platOf(c);
+  if(plat==='dsm2g'){
+    const m = typeof mdlById==='function' ? mdlById(c?.modelId) : null;
+    const awd = m && m.drive==='AWD';
+    const turbo = !m || m.turbo;
+    return {
+      gearbox: awd?'g-w5m33':(turbo?'g-f5m33':'g-f5mc1'),
+      /* 1996/07 起前差速器環齒輪由 58 齒改 57 齒 */
+      finalDrive: awd ? (+c?.year>=1997?'fd-4845':'fd-4929') : 'fd-4153',
+      diff: awd?'d-ecl-vlsd':'d-ecl-open',
+      clutch:'c-ecl-oem', flywheel:'f-oem-ecl',
+    };
+  }
+  const m = typeof mdlById==='function' ? mdlById(c?.modelId) : null;
+  const six = !!(m && m.six), isM = !!(m && m.m);
+  const euroM32 = m && m.id==='m3-s50b32';
+  return {
+    gearbox: euroM32?'g-420g':(six||isM?'g-320z':'g-250g'),
+    finalDrive: isM?(euroM32?'fd-323':'fd-315'):(six?'fd-293':'fd-345'),
+    diff: isM?'d-oem25':'d-open',
+    clutch:'c-oem', flywheel:'f-oem-e36',
+  };
+}
+
+/* --------------------------------------------------------------------------
+   引擎扭力曲線
+   --------------------------------------------------------------------------
+   ★這是「模型曲線」，不是實測資料。★
+   查無任何可靠的多點扭力對轉速資料：所有引擎資料庫都只公布兩個峰值點，
+   automobile-catalog 的曲線頁是付費牆且其曲線本身也是該站模擬產生的，
+   論壇上的則是個別改裝車的輪上馬力圖，不能當規格。
+
+   因此本函式用四個「查得到、可引用」的錨點合成曲線：
+   怠速、峰值扭力點、峰值馬力點、紅線。渦輪車另外加上增壓建立的區段。
+   -------------------------------------------------------------------------- */
+const ENGINE_CURVE = {
+  /* nm：峰值扭力, nmRpm：峰值扭力轉速, psRpm：峰值馬力轉速, red：紅線, cut：斷油 */
+  '4G63T':   {nm:290, nmRpm:3000, psRpm:6000, red:7000, cut:7500, turbo:true, spool:2400, conf:'oem'},
+  '420A':    {nm:180, nmRpm:4800, psRpm:6000, red:6500, cut:6800, turbo:false, conf:'community'},
+  'M52B28':  {nm:280, nmRpm:3950, psRpm:5300, red:6500, cut:6700, turbo:false, conf:'community'},
+  'M52B25':  {nm:245, nmRpm:3950, psRpm:5500, red:6500, cut:6700, turbo:false, conf:'community'},
+  'M52B20':  {nm:190, nmRpm:4200, psRpm:5900, red:6500, cut:6700, turbo:false, conf:'community'},
+  'M50B25':  {nm:245, nmRpm:4700, psRpm:5900, red:6500, cut:6700, turbo:false, conf:'community'},
+  'M50B25TU':{nm:245, nmRpm:4200, psRpm:5900, red:6500, cut:6700, turbo:false, conf:'community'},
+  'M50B20':  {nm:190, nmRpm:4700, psRpm:6000, red:6500, cut:6700, turbo:false, conf:'community'},
+  'M50B20TU':{nm:190, nmRpm:4200, psRpm:6000, red:6500, cut:6700, turbo:false, conf:'community'},
+  'S50B30':  {nm:320, nmRpm:3600, psRpm:7000, red:7200, cut:7400, turbo:false, conf:'community',
+              warn:'扭力另有 329 Nm @ 3500 的說法（維基），本表採兩個來源一致的 320 Nm @ 3600。紅線另有 7600 的說法，研判是與 3.2 混淆。'},
+  'S50B32':  {nm:350, nmRpm:3250, psRpm:7400, red:7600, cut:7800, turbo:false, conf:'community'},
+  'S50B30US':{nm:305, nmRpm:4250, psRpm:6000, red:6500, cut:6700, turbo:false, conf:'community'},
+  'S52B32':  {nm:322, nmRpm:3800, psRpm:6000, red:7000, cut:7200, turbo:false, conf:'community',
+              warn:'扭力來源分歧於 320–325 Nm 之間（換算不一致所致），本表取中間值 322。'},
+  'M44B19':  {nm:180, nmRpm:4300, psRpm:6000, red:6500, cut:6700, turbo:false, conf:'community'},
+  'M42B18':  {nm:175, nmRpm:4600, psRpm:6000, red:6500, cut:6700, turbo:false, conf:'community'},
+  'M43B18':  {nm:168, nmRpm:3900, psRpm:5500, red:6000, cut:6200, turbo:false, conf:'community'},
+  'M43B16':  {nm:150, nmRpm:4250, psRpm:5500, red:6000, cut:6200, turbo:false, conf:'community'},
+  'M40B18':  {nm:162, nmRpm:4250, psRpm:5500, red:6000, cut:6200, turbo:false, conf:'community'},
+  'M40B16':  {nm:141, nmRpm:4250, psRpm:5500, red:6000, cut:6200, turbo:false, conf:'community'},
+  'M41D17':  {nm:190, nmRpm:2000, psRpm:4400, red:4800, cut:5000, turbo:true, spool:1600, diesel:true, conf:'community'},
+  'M51D25':  {nm:222, nmRpm:1900, psRpm:4600, red:4800, cut:5000, turbo:true, spool:1500, diesel:true, conf:'community'},
+  'M51D25OL':{nm:280, nmRpm:2200, psRpm:4600, red:4800, cut:5000, turbo:true, spool:1600, diesel:true, conf:'community'},
+};
+function engineCurve(engId){
+  return ENGINE_CURVE[engId] || {nm:200, nmRpm:4000, psRpm:5800, red:6500, cut:6700, turbo:false, conf:'est'};
+}
+/* 正規化扭力（0–1，1 = 峰值）。渦輪車在 spool 之前扭力明顯不足。 */
+function torqueFactor(cv, rpm){
+  const {nmRpm, psRpm, red} = cv;
+  let t;
+  if(rpm<=nmRpm){
+    /* 低轉：從怠速的 0.42 爬到峰值。渦輪車用較陡的曲線表現增壓建立 */
+    const lo = 700, u = Math.max(0, (rpm-lo)/Math.max(1,nmRpm-lo));
+    if(cv.turbo){
+      const s = Math.max(0, Math.min(1,(rpm-(cv.spool||2200))/Math.max(1,nmRpm-(cv.spool||2200))));
+      t = .30 + .22*u + .48*(s*s*(3-2*s));           // 增壓建立前後的落差
+    }else{
+      t = .42 + .58*(u*u*(3-2*u));
+    }
+  }else if(rpm<=psRpm){
+    /* 峰值扭力 → 峰值馬力：緩降 */
+    const u=(rpm-nmRpm)/Math.max(1,psRpm-nmRpm);
+    t = 1 - .12*u*u;
+  }else{
+    /* 峰值馬力 → 紅線：明顯掉落 */
+    const u=Math.max(0,Math.min(1.4,(rpm-psRpm)/Math.max(1,red-psRpm)));
+    t = .88 - .34*u;
+  }
+  return Math.max(.05, Math.min(1, t));
+}
+
 /* ===== 12-data-products.js ===== */
 /* ==========================================================================
    實際改裝產品資料
@@ -2911,7 +3233,10 @@ const blankCar = () => ({
           drop:0, dropF:0, dropR:0, camberF:-1.0, camberR:-1.5, toeF:0.00, toeR:0.10,
           caster:7.0, trackF:0, trackR:0, pressureF:34, pressureR:36,
           caliper:'stock', tint:0, lip:false, skirt:false, wing:'none',
-          diffuser:false, wide:false, tips:'single', shadow:false, hood:false },
+          diffuser:false, wide:false, tips:'single', shadow:false, hood:false,
+          /* 傳動：null 代表「用這台車的原廠配置」，見 12-data-drivetrain.js 的 stockDrivetrain() */
+          gearbox:null, finalDrive:null, diff:null, clutch:null, flywheel:null, gearRatios:null,
+          lights:{head:0,brake:false,turn:'none',night:false} },
   parts:[], logs:[], fuelLogs:[], plans:[], project:[],
 });
 
@@ -3266,6 +3591,862 @@ const DROP_IMPACT = [
   {k:'legal',   t:'避震器變更需統一發票 ＋ 檢驗合格後登記；變更後不得超過原核定車身高度'},
   {k:'legal',   t:'降低後排氣管最低點需離地 ≥10 公分'},
 ];
+
+/* ===== 22-sim-vehicle.js ===== */
+/* ==========================================================================
+   車輛模擬核心 —— 引擎 / 傳動 / 輪胎 / LSD
+   --------------------------------------------------------------------------
+   這一層完全不碰 Three.js，只吐狀態；3D 那邊（31-car3d.js）讀狀態去畫。
+   單位一律 SI：公尺、公斤、牛頓、牛頓米、弧度、秒。
+
+   座標與慣例（與 3D 場景一致）：
+     車頭朝 −X，heading θ 為繞 Y 軸的偏航角
+     前進方向向量 = (−cosθ, 0, sinθ)
+     車身座標 vx = 縱向（前為正）、vy = 橫向（左為正）
+
+   模型結構：
+     引擎（曲軸角度、扭力曲線、引擎煞車、斷油）
+       ↕ 離合器（有滑差、有扭力上限）
+     變速箱（齒比）→ 終傳 → 差速器（LSD 分配左右輪）
+       ↓
+     四顆輪子（各自的角速度）→ 輪胎滑移 → 地面作用力
+       ↓
+     車身（縱向、橫向、偏航三個自由度）
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   輪胎模型：簡化 Pacejka「魔術公式」
+   --------------------------------------------------------------------------
+   F = D·sin(C·atan(B·s − E·(B·s − atan(B·s))))
+   s 為滑移率（縱向）或滑移角（橫向，弧度）。
+   B 越大 → 抓地力上升越快（峰值來得越早）
+   C 決定曲線形狀，D = 峰值 = μ·Fz，E 修正峰值後的掉落
+   -------------------------------------------------------------------------- */
+function pacejka(s, B, C, D, E){
+  const bs = B*s;
+  return D*Math.sin(C*Math.atan(bs - E*(bs - Math.atan(bs))));
+}
+
+/* 輪胎產品對應的抓地係數與曲線硬度。
+   TIRE_PRODUCTS 的 grip 是相對評分，這裡換算成實際的 μ。 */
+function tireModel(build){
+  const p = (typeof TIRE_PRODUCTS!=='undefined' && TIRE_PRODUCTS.find(x=>x.id===build.tireProduct)) || null;
+  const g = p ? (+p.grip||0) : 0;
+  return {
+    mu: 0.95 + g*0.035,          // 街胎約 0.95–1.05，半熱熔 1.15–1.3
+    Bx: 11 + g*1.2,              // 縱向：滑移率約 8–12% 到峰值
+    Cx: 1.65, Ex: .55,
+    By: 7.5 + g*0.9,             // 橫向：滑移角約 7–9° 到峰值
+    Cy: 1.35, Ey: .75,
+    name: p?p.name:'街道胎',
+  };
+}
+
+/* --------------------------------------------------------------------------
+   差速器：把單一輸入扭力分配到左右兩輪
+   --------------------------------------------------------------------------
+   多片式（clutch）：可跨傳的扭力上限 = 預壓 + 鎖定率 × 輸入扭力
+       —— 「鎖定率相對輸入扭力」是廠商定義，不是固定值
+   螺旋齒（helical / ATB）：跨傳上限與「較低那側的扭力」成比例，
+       所以單輪完全離地（該側扭力 0）時整顆失效，這點必須模擬出來
+   黏性（viscous）：跨傳扭力與左右轉速差成比例，反應慢
+   -------------------------------------------------------------------------- */
+function diffSplit(diff, torqueIn, omegaL, omegaR, dt){
+  const half = torqueIn/2;
+  if(!diff || diff.kind==='open') return [half, half];
+  if(diff.kind==='spool') return [half, half];
+
+  const dw = omegaL - omegaR;                 // 左快為正
+  const accel = torqueIn >= 0;
+  const lock = accel ? diff.lockA : diff.lockD;
+
+  let cap;                                     // 可跨傳的扭力上限（Nm）
+  if(diff.kind==='helical'){
+    /* 扭力感應式：上限正比於「較小側」的驅動扭力 */
+    const tbr = 1 + 2*(lock||0)*1.5;           // lock 0.6 → TBR ≈ 2.8
+    const lowSide = Math.abs(half);
+    cap = lowSide*(tbr-1)/2;
+  }else if(diff.kind==='viscous'){
+    /* 黏性接合：扭力 ∝ 轉速差，且有上升時間 */
+    cap = Math.min(Math.abs(dw)*22, 260*(lock||.2)/.2*.5) + (diff.pre||0);
+  }else{
+    cap = (diff.pre||0) + (lock||0)*Math.abs(torqueIn);
+  }
+
+  /* 跨傳方向永遠是「從快的那輪送到慢的那輪」 */
+  const transfer = Math.max(-cap, Math.min(cap, dw*180));
+  return [half - transfer/2, half + transfer/2];
+}
+
+/* --------------------------------------------------------------------------
+   建立模擬狀態
+   -------------------------------------------------------------------------- */
+function createVehicleSim(build, spec){
+  const c = typeof car==='function' ? car() : null;
+  const eng = (c && typeof carEngine==='function') ? carEngine(c) : null;
+  const cv = engineCurve(eng?eng.id:'');
+  const stock = typeof stockDrivetrain==='function' ? stockDrivetrain(c) : {};
+
+  const gb = gearboxById(build.gearbox||stock.gearbox) || GEARBOXES[0];
+  const fd = finalDriveById(build.finalDrive||stock.finalDrive) || FINAL_DRIVES[0];
+  const df = diffById(build.diff||stock.diff) || DIFFS[0];
+  const cl = clutchById(build.clutch||stock.clutch) || CLUTCHES[0];
+  const fw = flywheelById(build.flywheel||stock.flywheel) || FLYWHEELS[0];
+
+  /* 使用者可逐檔微調（build.gearRatios 覆寫，null 表示用原本的） */
+  const gears = (Array.isArray(build.gearRatios)&&build.gearRatios.length)
+    ? build.gearRatios.map(Number) : gb.gears.slice();
+
+  const plat = c && typeof platOf==='function' ? platOf(c) : 'e36';
+  const mdl = (c && typeof mdlById==='function') ? mdlById(c.modelId) : null;
+  const drive = plat==='dsm2g' ? (mdl && mdl.drive==='AWD' ? 'awd' : 'fwd') : 'rwd';
+
+  /* 車重：用車身資料估，加上駕駛 */
+  const body = (c && typeof bodyById==='function') ? bodyById(c.bodyId) : null;
+  const mass = (body && +body.kg) || (plat==='dsm2g' ? (drive==='awd'?1420:1255) : 1400);
+
+  const tireR = typeof car3DTireRadius==='function' ? car3DTireRadius(build) : .31;
+  const wheelbase = (body && +body.wb ? body.wb/1000 : 2.70);
+  const trackW = (body && +body.W ? body.W/1000*.86 : 1.45);
+
+  return {
+    /* 設定 */
+    cfg:{
+      gb, fd, df, cl, fw, gears, drive, plat, cv, eng,
+      finalRatio: +fd.ratio || 3.15,
+      flyI: flywheelInertia(fw.kg) + 0.09,     // 飛輪 + 曲軸與其他旋轉件
+      clutchNm: +cl.nm || 350,
+      auto: !!gb.auto,
+      mass, tireR, wheelbase, trackW,
+      /* 前後配重：E36 約 50:50，Eclipse 前驅偏前 */
+      wDistF: plat==='dsm2g' ? .61 : .51,
+      cgH: .52,                                 // 重心高（公尺）★估算★
+      /* 每顆輪子的轉動慣量（含輪圈、輪胎與碟盤）★估算★
+         17 吋鋁圈配 245/40 街胎的總成約 22 kg，質量多集中在外緣，
+         取 I ≈ 0.62·m·R²。舊版係數只有這個的 4 成，扭力一進來輪子就瞬間空轉。 */
+      wheelI: Math.max(.55, 0.62*(16+(tireR-.30)*90)*tireR*tireR),
+      Cd: plat==='dsm2g' ? .29 : .31, area: 1.86, rho: 1.2,
+      rollRes: .014,
+      brakeNm: 2400, handbrakeNm: 850,
+    },
+    /* 引擎 */
+    rpm: 0, crank: 0, throttle: 0, running:false,
+    starter: 0,
+    fuelCut:false, cutTimer:0, misfire:0,
+    boost: 0,
+    /* 傳動 */
+    gear: 1, clutch: 1, shifting: 0, shiftFrom: 0, shiftCool: 0, autoMode: !!gb.auto,
+    /* 車身 */
+    x:0, z:0, heading:0, vx:0, vy:0, yaw:0,
+    /* 四輪角速度（FL, FR, RL, RR） */
+    w:[0,0,0,0], slipR:[0,0,0,0], slipA:[0,0,0,0],
+    fxL:[0,0,0,0], fyL:[0,0,0,0], launchT:0,
+    steer:0, brake:0, handbrake:0, tc:true, tcCut:0,
+    /* 輸出 */
+    speed:0, drift:0, wheelSpin:0, gForce:0, lastShift:0,
+  };
+}
+
+/* --------------------------------------------------------------------------
+   引擎扭力（含引擎煞車、斷油、渦輪遲滯）
+   -------------------------------------------------------------------------- */
+function engineTorque(S, dt){
+  const cv = S.cfg.cv, rpm = S.rpm;
+  /* 斷油：到達 cut 就切火，切一小段時間再回來 —— 這是限轉跳動的來源 */
+  if(rpm >= cv.cut){ S.fuelCut = true; S.cutTimer = .11; }
+  if(S.cutTimer > 0){ S.cutTimer -= dt; if(S.cutTimer<=0) S.fuelCut=false; }
+
+  /* 渦輪：增壓跟著油門與轉速建立，有遲滯 */
+  if(cv.turbo){
+    const spoolable = Math.max(0, Math.min(1, (rpm-(cv.spool||2200))/1400));
+    const target = S.throttle*spoolable;
+    const rate = target>S.boost ? 3.4 : 6.5;      // 建立慢、洩掉快
+    S.boost += (target-S.boost)*Math.min(1, rate*dt);
+  }else S.boost = 0;
+
+  /* 起動馬達：把引擎拖到約 320 rpm 就交給燃燒。
+     用物理做而不是用計時器改 rpm —— 計時器會跟每幀的物理積分打架，
+     而且拿著舊的狀態物件參考（換零件時會被換掉）。 */
+  if(S.starter > 0){
+    return Math.max(0, 95 - rpm*0.30);
+  }
+  if(!S.running || S.fuelCut) {
+    /* 熄火或斷油：只剩泵損與摩擦 */
+    return -(24 + rpm*0.010);
+  }
+
+  const peak = cv.nm;
+  let t = peak*torqueFactor(cv, rpm)*S.throttle;
+  /* 怠速控制：轉速低於怠速時補扭力，避免熄火 */
+  const idle = cv.diesel?760:800;
+  if(rpm < idle*1.35 && S.throttle < .12){
+    t += peak*.16*Math.max(0,(idle*1.15-rpm)/(idle*1.15));
+  }
+  /* 引擎煞車：放油門時的泵損，轉速越高越強 */
+  const brakeT = (24 + rpm*0.010)*(1-S.throttle);
+  return t - brakeT;
+}
+
+/* --------------------------------------------------------------------------
+   自排換檔邏輯
+   -------------------------------------------------------------------------- */
+function autoShift(S, dt){
+  if(S.shiftCool>0){ S.shiftCool-=dt; return; }
+  if(S.shifting>0) return;
+  const cv=S.cfg.cv, n=S.cfg.gears.length;
+  /* ★ 用車速回推的轉速判斷，不能用引擎轉速 ★
+     起步放離合器時引擎會空轉到很高，拿引擎轉速判斷會一路亂升檔。 */
+  const r=totalRatio(S); if(!r) return;
+  const wheelRpm = Math.abs(S.vx)/S.cfg.tireR*Math.abs(r)*30/Math.PI;
+  const up = cv.psRpm*(0.74+0.24*S.throttle);
+  const dn = cv.psRpm*0.34;
+  /* 觸發用引擎轉速（起步空轉時它才會到限轉，這時本來就該升檔），
+     但升上去之後的轉速必須夠高才准換 —— 否則低速時會一路升到頂檔然後熄火。 */
+  if(S.gear<n && S.rpm>up){
+    const nextWheelRpm = wheelRpm*(+S.cfg.gears[S.gear]/+S.cfg.gears[S.gear-1]);
+    /* 門檻必須高過降檔門檻（0.34），否則升上去馬上又被降回來 */
+    if(nextWheelRpm > cv.psRpm*0.44){ shiftTo(S,S.gear+1); S.shiftCool=.55; }
+  }else if(S.gear>1){
+    /* 降檔前先確認降下去不會直接超過斷油 */
+    const nextRpm = wheelRpm*(+S.cfg.gears[S.gear-2]/+S.cfg.gears[S.gear-1]);
+    if(wheelRpm<dn && nextRpm<cv.cut*0.92){ shiftTo(S,S.gear-1); S.shiftCool=.45; }
+  }
+}
+
+function shiftTo(S, g){
+  const n=S.cfg.gears.length;
+  g = Math.max(-1, Math.min(n, g|0));
+  if(g===S.gear || S.shifting>0) return;
+  S.shiftFrom = S.gear;
+  S.gear = g;
+  /* 換檔時間：自排較長且不完全斷離合，手排短而乾脆 */
+  S.shifting = S.cfg.auto ? .30 : .16;
+  S.lastShift = g;
+  /* 換檔後引擎轉速跟著齒比跳。手排降檔沒補油就是靠這個產生引擎煞車衝擊。 */
+  const from=S.shiftFrom, gears=S.cfg.gears;
+  if(from>0 && g>0 && gears[from-1] && gears[g-1]){
+    S._rpmTarget = S.rpm*(gears[g-1]/gears[from-1]);
+  }else S._rpmTarget = null;
+}
+
+/* 目前總減速比（含終傳）。空檔為 0，倒檔取負值。 */
+function totalRatio(S){
+  if(S.gear===0) return 0;
+  if(S.gear<0) return -(+S.cfg.gb.rev || 3.5)*S.cfg.finalRatio;
+  return (+S.cfg.gears[S.gear-1]||1)*S.cfg.finalRatio;
+}
+
+/* --------------------------------------------------------------------------
+   主積分：一個 substep
+   -------------------------------------------------------------------------- */
+function stepVehicleSim(S, dt, input){
+  const C = S.cfg;
+  /* 循跡防滑（可關）：驅動輪滑移率超過門檻就收油。
+     這不是作弊 —— E36 多數車款原廠就有 ASC，Eclipse 沒有。
+     關掉之後才能用油門把車尾送出去，飄移要關這個。 */
+  let thrIn = input.thr||0;
+  if(S.tc!==false){
+    const dwIdx = C.drive==='fwd' ? [0,1] : C.drive==='rwd' ? [2,3] : [0,1,2,3];
+    let worst=0; dwIdx.forEach(i=>worst=Math.max(worst, S.slipR[i]||0));
+    if(worst>0.16){
+      S.tcCut = Math.min(1, (worst-0.16)*2.6);
+      thrIn *= Math.max(0.12, 1-S.tcCut);
+    }else S.tcCut = Math.max(0, (S.tcCut||0)-dt*3);
+  }else S.tcCut = 0;
+  S.throttle += (thrIn-S.throttle)*Math.min(1, 18*dt);
+  S.brake = input.brake||0;
+  S.handbrake = input.handbrake?1:0;
+  /* 最大轉向角隨車速略降，但不能降太多 ——
+     救車靠的就是反打，反打角度大致要等於滑移角。上限壓到 10 度以下的話
+     車一滑出去就永遠救不回來，那不是飄移，是必定打轉。
+     靜止約 34°、時速 65 約 22°、時速 110 約 18°。 */
+  const maxSteer = 0.60/(1+Math.abs(S.vx)*0.030);
+  S.steer += ((input.steer||0)*maxSteer - S.steer)*Math.min(1, 9*dt);
+
+  if(S.starter>0){
+    S.starter-=dt;
+    if(S.starter<=0){ S.starter=0; S.running=true; }
+  }
+  if(S.shifting>0){
+    S.shifting-=dt;
+    if(S.shifting<=0){
+      S.shifting=0;
+      if(S._rpmTarget){ S.rpm=Math.max(400,Math.min(S.cfg.cv.cut*1.02,S._rpmTarget)); S._rpmTarget=null; }
+    }
+  }
+  if(S.autoMode && S.running) autoShift(S, dt);
+
+  /* ---- 引擎 ---- */
+  const Te = engineTorque(S, dt);
+  const ratio = totalRatio(S);
+  /* 離合器接合度：換檔中放開，起步時依轉速差滑動 */
+  let engage = S.shifting>0 ? (C.auto?.35:0) : 1;
+  if(input.clutch) engage = 0;
+  /* 起步：轉速越高、接合越多。這是真人放離合器的行為，也讓模型自己穩住 ——
+     直接全接合會瞬間把引擎拖到怠速以下（熄火），完全不接合則是空轉。 */
+  if(engage>0 && Math.abs(S.gear)===1 && Math.abs(S.vx)<5.5){
+    if(input.thr>.05) S.launchT=(S.launchT||0)+dt; else S.launchT=0;
+    /* 兩個條件取小：轉速要夠（不然熄火）、時間要夠（不然是把離合器摔下去）。
+       真人起步就是這兩件事同時在做，少了時間項就會變成一放就 15 倍空轉。 */
+    const rev=Math.max(0,(S.rpm-900)/1400);
+    const byRev=Math.min(1, rev*rev);
+    const byTime=Math.min(1,(S.launchT||0)/0.85);
+    engage=Math.min(engage, Math.max(.04, Math.min(byRev, byTime)));
+  }else S.launchT=0;
+
+  /* 驅動輪的平均角速度 → 換算到引擎端 */
+  const dw = C.drive==='fwd' ? [0,1] : C.drive==='rwd' ? [2,3] : [0,1,2,3];
+  let wDrive = 0; dw.forEach(i=>wDrive+=S.w[i]); wDrive/=dw.length;
+  const wEngFromWheels = wDrive*Math.abs(ratio);
+
+  let wEng = S.rpm*Math.PI/30;
+  let clutchT = 0;
+  if(ratio!==0 && engage>0){
+    /* 離合器傳遞扭力：與轉速差成比例，但不超過離合器容許值 */
+    const slip = wEng - wEngFromWheels;
+    const cap = C.clutchNm*engage;
+    clutchT = Math.max(-cap, Math.min(cap, slip*14*engage));
+  }
+  /* 引擎角加速度 */
+  wEng += (Te - clutchT)/C.flyI*dt;
+  S.rpm = Math.max(0, wEng*30/Math.PI);
+  if(S.running) S.rpm = Math.max(S.rpm, 380);      // 怠速下限（模擬怠速閥）
+  S.crank += wEng*dt;
+
+  /* ---- 傳動扭力送到輪子 ---- */
+  const axleT = clutchT*Math.abs(ratio)*Math.sign(ratio||1);
+  let tFL=0,tFR=0,tRL=0,tRR=0;
+  if(C.drive==='awd'){
+    /* 中央差速器：名目 50/50。★注意★ 焊死中差不代表扭力 50/50，
+       只保證前後平均轉速相同 —— 實際分配仍依抓地力變化。 */
+    const [fl,fr] = diffSplit(DIFFS.find(x=>x.id==='d-ecl-open'), axleT*.5, S.w[0], S.w[1], dt);
+    const [rl,rr] = diffSplit(C.df, axleT*.5, S.w[2], S.w[3], dt);
+    tFL=fl;tFR=fr;tRL=rl;tRR=rr;
+  }else if(C.drive==='fwd'){
+    const [fl,fr] = diffSplit(C.df, axleT, S.w[0], S.w[1], dt); tFL=fl;tFR=fr;
+  }else{
+    const [rl,rr] = diffSplit(C.df, axleT, S.w[2], S.w[3], dt); tRL=rl;tRR=rr;
+  }
+  const driveT=[tFL,tFR,tRL,tRR];
+
+  /* ---- 荷重轉移 ---- */
+  const g=9.81, m=C.mass;
+  const aLong = S.gForce||0, aLat = S.yaw*S.vx;
+  const Wf = Math.max(0, m*g*C.wDistF - m*aLong*C.cgH/C.wheelbase);
+  const Wr = Math.max(0, m*g*(1-C.wDistF) + m*aLong*C.cgH/C.wheelbase);
+  /* 橫向轉移不可超過該軸荷重 —— 超過就是內側輪離地，再多也轉移不出去。
+     沒有這個上限的話，高偏航率時 Fz 會算出負值與暴增值，車子就會自己炸開。 */
+  const rawLat = m*aLat*C.cgH/C.trackW;
+  const latF = Math.max(-Wf, Math.min(Wf, rawLat));
+  const latR = Math.max(-Wr, Math.min(Wr, rawLat));
+  const Fz=[
+    Math.max(0, Wf/2 - latF/2), Math.max(0, Wf/2 + latF/2),
+    Math.max(0, Wr/2 - latR/2), Math.max(0, Wr/2 + latR/2),
+  ];
+
+  /* ---- 每顆輪子：滑移 → 地面作用力 ---- */
+  const T = tireModel(typeof car==='function'&&car()?car().build:{});
+  const cosH=Math.cos(S.heading), sinH=Math.sin(S.heading);
+  let Fx=0, Fy=0, Mz=0, maxSpin=0;
+  const halfWB=C.wheelbase/2, halfT=C.trackW/2;
+  const pos=[[halfWB,-halfT],[halfWB,halfT],[-halfWB,-halfT],[-halfWB,halfT]];
+
+  for(let i=0;i<4;i++){
+    const front = i<2;
+    const sa = front ? S.steer : 0;              // 轉向角（只有前輪）
+    /* 該輪在車身座標的速度 */
+    const wx = S.vx - S.yaw*pos[i][1];
+    const wy = S.vy + S.yaw*pos[i][0];
+    /* 旋轉到輪子座標 */
+    const cx = Math.cos(sa), sx = Math.sin(sa);
+    const vLong = wx*cx + wy*sx;
+    const vLat  = -wx*sx + wy*cx;
+
+    /* 縱向滑移率 */
+    const vRef = Math.max(1.2, Math.abs(vLong));
+    const slipRatio = (S.w[i]*C.tireR - vLong)/vRef;
+    /* 側向滑移角 */
+    const slipAngle = Math.atan2(-vLat, vRef);
+    S.slipR[i]=slipRatio; S.slipA[i]=slipAngle;
+
+    /* 前軸的側向剛性刻意調得比後軸低一點 = 出廠設定的推頭傾向。
+       原廠車都是這樣調的，否則極限一到就是甩尾，一般駕駛救不回來。
+       後軸束角（toeR）越正，穩定性越高，這裡一併反映。 */
+    const build0 = (typeof car==='function'&&car())?car().build:{};
+    const toeRBoost = 1 + Math.max(0, +build0.toeR||0)*1.4;
+    const By = front ? T.By*0.90 : T.By*1.06*toeRBoost;
+    const D = T.mu*Fz[i];
+    let fx = pacejka(slipRatio, T.Bx, T.Cx, D, T.Ex);
+    let fy = pacejka(slipAngle, By, T.Cy, D, T.Ey);
+    /* 摩擦圓：縱向與橫向共用同一份抓地力 */
+    const mag = Math.hypot(fx, fy);
+    if(mag > D && mag>0){ fx*=D/mag; fy*=D/mag; }
+
+    /* ★ 輪胎鬆弛長度（relaxation length）★
+       輪胎不是彈簧，胎體要滾過一段距離才建立得起側向力，典型 0.4–0.6 公尺。
+       少了這一項，模型在極限附近會出現數值上的瞬間反覆，車子看起來像被彈開 ——
+       這也是為什麼原本某些速度下會莫名其妙自己打轉。 */
+    const relax = 0.55;
+    const kRel = Math.min(1, Math.abs(vLong)*dt/relax + dt*4);
+    S.fxL[i] += (fx - S.fxL[i])*kRel;
+    S.fyL[i] += (fy - S.fyL[i])*kRel;
+    fx = S.fxL[i]; fy = S.fyL[i];
+
+    /* 輪子角動量：驅動扭力 − 地面反力矩 − 煞車 */
+    let brakeT = S.brake*C.brakeNm*(front?.62:.38);
+    if(S.handbrake && !front) brakeT += C.handbrakeNm;   // 手煞車只鎖後輪
+    const roadT = fx*C.tireR;
+    let dw2 = (driveT[i] - roadT)/C.wheelI;
+    S.w[i] += dw2*dt;
+    /* 煞車力矩：不可把輪子推成反轉 */
+    if(brakeT>0){
+      const dec = brakeT/C.wheelI*dt;
+      if(Math.abs(S.w[i])<=dec) S.w[i]=0; else S.w[i]-=Math.sign(S.w[i])*dec;
+    }
+    maxSpin=Math.max(maxSpin, Math.abs(slipRatio));
+
+    /* 把輪子的力轉回車身座標 */
+    Fx += fx*cx - fy*sx;
+    Fy += fx*sx + fy*cx;
+    Mz += (fx*sx + fy*cx)*pos[i][0] - (fx*cx - fy*sx)*pos[i][1];
+  }
+
+  /* ---- 空氣阻力與滾動阻力 ---- */
+  const v=Math.hypot(S.vx,S.vy);
+  const drag=.5*C.rho*C.Cd*C.area*v*v;
+  if(v>.01){ Fx -= drag*S.vx/v; Fy -= drag*S.vy/v; }
+  Fx -= C.rollRes*m*g*Math.sign(S.vx);
+
+  /* ---- 車身運動（三自由度）---- */
+  /* 偏航慣量。均質長方體公式會低估（引擎與變速箱集中在前後軸之間），
+     實車量測值約為公式值的 1.6–1.9 倍，這裡取 1.75。 */
+  const Iz = m*(C.wheelbase*C.wheelbase + C.trackW*C.trackW)/12*1.75;
+  const ax = Fx/m + S.yaw*S.vy;
+  const ay = Fy/m - S.yaw*S.vx;
+  S.vx += ax*dt; S.vy += ay*dt;
+  S.yaw += Mz/Iz*dt;
+  S.gForce = ax;
+
+  /* 極低速時把橫向與偏航收斂掉，避免數值噪音讓車子自己抖動 */
+  if(Math.abs(S.vx)<.35 && Math.abs(S.vy)<.35){
+    S.vy*=Math.pow(.02,dt); S.yaw*=Math.pow(.02,dt);
+  }
+
+  /* ---- 位置積分 ---- */
+  S.heading += S.yaw*dt;
+  /* 車身座標 → 世界座標：車頭朝 −X */
+  S.x += (-S.vx*cosH - S.vy*sinH)*dt;
+  S.z += ( S.vx*sinH - S.vy*cosH)*dt;
+
+  /* ---- 輸出量 ---- */
+  S.speed = S.vx*3.6;
+  S.drift = Math.abs(S.vx)>2 ? Math.atan2(-S.vy, Math.abs(S.vx))*180/Math.PI : 0;
+  S.wheelSpin = maxSpin;
+  return S;
+}
+
+/* 依目前檔位與車速回推「應有的」引擎轉速（給 UI 與換檔提示用） */
+function simRpmAtSpeed(S, kph){
+  const r=totalRatio(S); if(!r) return 0;
+  return Math.abs(kph/3.6/S.cfg.tireR*r*30/Math.PI);
+}
+/* 該檔位的理論極速（到斷油為止） */
+function simGearTopSpeed(S, gearIndex){
+  const g=+S.cfg.gears[gearIndex]; if(!g) return 0;
+  const r=g*S.cfg.finalRatio;
+  return S.cfg.cv.cut*Math.PI/30/r*S.cfg.tireR*3.6;
+}
+
+/* ===== 23-sim-audio.js ===== */
+/* ==========================================================================
+   引擎聲：曲軸角度驅動的物理合成（AudioWorklet）
+   --------------------------------------------------------------------------
+   為什麼不是播錄音
+   --------------------------------------------------------------------------
+   常被拿來比較的那類線上引擎模擬器（例如 markeasting 的 engine-audio），
+   聽起來真實是因為它們播的就是真車錄音 —— 四段實錄 WAV（高／低轉 × 收／放油門）
+   依轉速與油門交叉淡入，再用 detune 微調音高。它的 26 個音檔共 48 MB。
+
+   本專案不走那條路的兩個理由：
+     1. 授權。引擎錄音有著作權，本專案已在授權上反覆卡關（見 NOTICE.md）。
+     2. 錄音是死的。固定音檔沒辦法反映「這台車的缸數、紅線、排氣尾段、
+        增壓值、目前檔位負載」—— 而這正是這個 app 存在的意義。
+
+   --------------------------------------------------------------------------
+   那怎麼讓合成聲不像電子音？
+   --------------------------------------------------------------------------
+   關鍵是別再用「基頻正弦波 + 疊諧波」那套。真實的引擎聲是：
+     每個汽缸在自己的相位排出一團高壓氣體 → 一連串脈衝
+     這串脈衝在排氣管裡來回反射 → 管長決定共鳴音色
+   所以這裡改成在 AudioWorklet 裡逐取樣做：
+
+     曲軸角度 θ 積分（取樣級精度）
+       → 每缸依點火順序在自己的相位產生壓力脈衝（急升緩降）
+       → 燃燒不均勻性：每次點火加一點隨機變化（這是「活的」的來源）
+       → 排氣歧管波導 → 主排氣管波導（開口端反射為負，造成共鳴）
+       → 進氣噪音（隨油門開度）＋ 機械噪音（隨轉速）
+       → 渦輪嘯叫與洩壓閥（渦輪車）
+       → 直流阻隔 → 軟限幅
+
+   直四點火順序 1-3-4-2（每轉兩次點火）與直六 1-5-3-6-2-4（每轉三次）
+   的差別，在這個模型裡是「自動」出現的，不需要另外調參數 ——
+   這也是直六天生比較滑順的物理原因。
+
+   斷油限轉：只要停掉燃燒脈衝、保留泵氣脈衝，那個「噠噠噠」就自然出現。
+   放油門的回火也一樣：偶爾補一個未燃燒的爆音進排氣管。
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   Worklet 本體。用字串內嵌 + Blob URL 載入，維持單檔可離線。
+   注意：這段字串裡不可以出現反引號或 ${ }。
+   -------------------------------------------------------------------------- */
+const ENGINE_WORKLET_SRC = `
+class EngineProcessor extends AudioWorkletProcessor {
+  static get parameterDescriptors(){
+    return [
+      {name:'rpm',      defaultValue:0,   minValue:0, maxValue:14000, automationRate:'k-rate'},
+      {name:'throttle', defaultValue:0,   minValue:0, maxValue:1,     automationRate:'k-rate'},
+      {name:'boost',    defaultValue:0,   minValue:0, maxValue:1,     automationRate:'k-rate'},
+      {name:'load',     defaultValue:0,   minValue:0, maxValue:1,     automationRate:'k-rate'},
+      {name:'cut',      defaultValue:0,   minValue:0, maxValue:1,     automationRate:'k-rate'},
+    ];
+  }
+
+  constructor(opt){
+    super();
+    const o = (opt && opt.processorOptions) || {};
+    this.setup(o);
+    this.theta = 0;
+    this.fs = sampleRate;
+
+    /* 波導延遲線：歧管（短）與主管（長） */
+    this.maxD = Math.ceil(this.fs*0.06);
+    this.hdr = new Float32Array(this.maxD); this.hi = 0; this.hlp = 0;
+    this.pipe = new Float32Array(this.maxD); this.pi = 0; this.plp = 0;
+    this.intk = new Float32Array(this.maxD); this.ii = 0; this.ilp = 0;
+
+    /* 濾波與雜訊狀態 */
+    this.dcx = 0; this.dcy = 0;
+    this.bp1 = 0; this.bp2 = 0;
+    this.mech = 0;
+    this.turbo = 0; this.turboPh = 0;
+    this.bov = 0; this.bovF = 0;
+    this.pop = 0;
+    /* 每缸固定的個體差異（噴油嘴、壓縮、積碳都會造成），一輩子不變 */
+    this.cylBias = new Float32Array(12);
+    for(let i=0;i<12;i++) this.cylBias[i] = 0.94+Math.random()*0.12;
+    /* 每個循環再疊一點小抖動 —— 這是燃燒的循環變異，不是缸別差異 */
+    this.fireSeed = new Float32Array(12);
+    for(let i=0;i<12;i++) this.fireSeed[i] = this.cylBias[i];
+
+    this.port.onmessage = e => {
+      const d = e.data || {};
+      if(d.type==='config') this.setup(d);
+      if(d.type==='bov'){ this.bov = 1; this.bovF = 2600; }
+      if(d.type==='pop') this.pop = 1;
+    };
+  }
+
+  setup(o){
+    this.cyl = Math.max(1, Math.min(12, o.cylinders|0 || 4));
+    /* 四行程：一個完整循環 720 度 = 4π。等間隔點火。 */
+    this.fire = new Float32Array(this.cyl);
+    for(let i=0;i<this.cyl;i++) this.fire[i] = i*(4*Math.PI/this.cyl);
+    /* 排氣管長度（公尺）→ 延遲取樣數。尾段設定會改變這個值。 */
+    this.pipeL = o.pipeLength || 2.6;
+    this.hdrL  = o.headerLength || 0.62;
+    this.intkL = o.intakeLength || 0.42;
+    this.isTurbo = !!o.turbo;
+    this.isDiesel = !!o.diesel;
+    /* 排氣溫度高，音速比常溫快很多 */
+    this.cExh = 480; this.cAir = 343;
+    this.damp = o.damp!==undefined ? o.damp : 0.34;
+    this.refl = o.reflect!==undefined ? o.reflect : 0.74;
+  }
+
+  /* 單缸壓力：ph 為該缸在循環中的相位（0 到 4π） */
+  cylPressure(ph, seed, burn){
+    const TAU4 = 4*Math.PI;
+    if(ph < 0) ph += TAU4;
+    if(ph >= TAU4) ph -= TAU4;
+    /* 排氣門開啟後的洩放脈衝：急升、指數衰減 */
+    const w = 2.3;                       // 脈衝持續的弧度
+    let p = 0;
+    if(ph < w){
+      const u = ph/w;
+      const atk = u < 0.035 ? u/0.035 : 1;
+      p = atk*Math.exp(-4.1*u)*seed*burn;
+    }
+    /* 壓縮行程的泵氣：即使斷油也存在，這是限轉噠噠聲的來源 */
+    const cph = ph - 2*Math.PI;
+    if(cph > 0 && cph < 1.5){
+      const u = cph/1.5;
+      p -= 0.16*Math.sin(Math.PI*u)*seed;
+    }
+    return p;
+  }
+
+  process(inputs, outputs, params){
+    const out = outputs[0][0];
+    if(!out) return true;
+    const rpm = params.rpm[0], thr = params.throttle[0];
+    const boost = params.boost[0], load = params.load[0], cut = params.cut[0];
+
+    if(rpm < 1){
+      for(let i=0;i<out.length;i++) out[i] = 0;
+      return true;
+    }
+
+    const omega = rpm*Math.PI/30;
+    const dTh = omega/this.fs;
+    const TAU4 = 4*Math.PI;
+
+    /* 燃燒強度：油門與增壓決定。斷油時只剩泵氣。 */
+    const burn = cut > 0.5 ? 0.10 : (0.30 + 0.70*thr)*(1 + boost*0.85);
+    /* 管長：延遲取樣數 */
+    const dHdr = Math.min(this.maxD-2, Math.floor(this.fs*2*this.hdrL/this.cExh));
+    const dPipe= Math.min(this.maxD-2, Math.floor(this.fs*2*this.pipeL/this.cExh));
+    const dIntk= Math.min(this.maxD-2, Math.floor(this.fs*2*this.intkL/this.cAir));
+
+    /* 進氣與機械噪音的量 */
+    const intakeAmt = (0.05 + 0.55*thr)*(0.35 + rpm/7000);
+    const mechAmt = 0.020 + rpm/9000*0.055 + (this.isDiesel?0.05:0);
+    const turboAmt = this.isTurbo ? boost*0.6*(0.3+thr*0.7) : 0;
+
+    for(let n=0;n<out.length;n++){
+      this.theta += dTh;
+      if(this.theta >= TAU4){
+        this.theta -= TAU4;
+        /* 循環變異：在各缸固定偏差上疊 ±3%。太大會變成「拖拉機」，
+           太小會回到電子音。直六天生比直四滑順是點火間隔造成的，不靠這裡調。 */
+        for(let c=0;c<this.cyl;c++) this.fireSeed[c] = this.cylBias[c]*(0.97+Math.random()*0.06);
+      }
+
+      /* 所有汽缸的壓力總和 */
+      let p = 0;
+      for(let c=0;c<this.cyl;c++){
+        p += this.cylPressure(this.theta - this.fire[c], this.fireSeed[c], burn);
+      }
+      p *= 0.9/Math.sqrt(this.cyl);
+
+      /* 放油門回火：未燃燒混合氣在排氣管點著 */
+      if(this.pop > 0){
+        p += this.pop*(Math.random()*2-1)*0.9;
+        this.pop *= 0.988;
+        if(this.pop < 0.001) this.pop = 0;
+      }
+
+      /* --- 歧管波導 --- */
+      let hRead = this.hdr[this.hi];
+      this.hlp += this.damp*(hRead - this.hlp);
+      let hRefl = -this.refl*0.55*this.hlp;
+      this.hdr[this.hi] = p + hRefl;
+      this.hi = (this.hi+1) % dHdr;
+      const hOut = hRead - hRefl;
+
+      /* --- 主排氣管波導 --- */
+      let pRead = this.pipe[this.pi];
+      this.plp += this.damp*(pRead - this.plp);
+      let pRefl = -this.refl*this.plp;
+      this.pipe[this.pi] = hOut*0.85 + pRefl;
+      this.pi = (this.pi+1) % dPipe;
+      let exh = pRead - pRefl;
+
+      /* --- 進氣：噪音經自己的短波導 --- */
+      const nz = Math.random()*2-1;
+      let iRead = this.intk[this.ii];
+      this.ilp += 0.42*(iRead - this.ilp);
+      const iRefl = -0.55*this.ilp;
+      /* 進氣脈動與曲軸同步 */
+      const intakePulse = Math.max(0, Math.sin(this.theta*this.cyl/2));
+      this.intk[this.ii] = nz*intakeAmt*(0.4+0.6*intakePulse) + iRefl;
+      this.ii = (this.ii+1) % dIntk;
+      const intake = (iRead - iRefl)*0.9;
+
+      /* --- 機械／汽門噪音：帶通雜訊 --- */
+      const mn = Math.random()*2-1;
+      this.bp1 += 0.25*(mn - this.bp1);
+      this.bp2 += 0.11*(this.bp1 - this.bp2);
+      const mechNoise = (this.bp1 - this.bp2)*mechAmt;
+
+      /* --- 渦輪嘯叫與洩壓閥 --- */
+      let turboSig = 0;
+      if(this.isTurbo){
+        this.turboPh += (rpm*0.055 + boost*900 + 1600)*2*Math.PI/this.fs;
+        if(this.turboPh > 6.283185) this.turboPh -= 6.283185;
+        turboSig = Math.sin(this.turboPh)*turboAmt*0.14
+                 + (Math.random()*2-1)*turboAmt*0.05;
+        if(this.bov > 0){
+          this.bovF *= 0.99972;
+          const bn = Math.random()*2-1;
+          turboSig += bn*this.bov*0.55*Math.min(1, this.bovF/900);
+          this.bov *= 0.99975;
+          if(this.bov < 0.002) this.bov = 0;
+        }
+      }
+
+      /* --- 混音 --- */
+      let s = exh*1.0 + intake*0.55 + mechNoise + turboSig;
+
+      /* 直流阻隔 */
+      this.dcy = s - this.dcx + 0.9985*this.dcy;
+      this.dcx = s;
+      s = this.dcy;
+
+      /* 軟限幅 */
+      out[n] = Math.tanh(s*1.6)*0.62;
+    }
+    return true;
+  }
+}
+registerProcessor('engine-processor', EngineProcessor);
+`;
+
+/* --------------------------------------------------------------------------
+   主執行緒的包裝
+   -------------------------------------------------------------------------- */
+const EngineAudio = {
+  ctx:null, node:null, master:null, ready:false, loading:null,
+  vol:.7, muted:false, running:false, unsupported:false,
+
+  load(){
+    try{
+      const s=JSON.parse(localStorage.getItem('garage.engineAudio')||'{}');
+      if(Number.isFinite(+s.vol)) this.vol=Math.max(0,Math.min(1,+s.vol));
+      this.muted=!!s.muted;
+    }catch(e){}
+  },
+  save(){
+    try{localStorage.setItem('garage.engineAudio',JSON.stringify({vol:this.vol,muted:this.muted}));}catch(e){}
+  },
+
+  async init(){
+    if(this.ready) return true;
+    if(this.loading) return this.loading;
+    const AC = window.AudioContext||window.webkitAudioContext;
+    if(!AC){ this.unsupported=true; return false; }
+
+    this.loading = (async()=>{
+      this.ctx = new AC();
+      /* ★ 偵測要對「實例」做 ★ audioWorklet 定義在 BaseAudioContext.prototype 上
+         而且是 accessor，拿 AudioContext.prototype.audioWorklet 會取不到值，
+         照那樣判斷會永遠認定瀏覽器不支援，引擎就發不動。 */
+      if(!this.ctx.audioWorklet){
+        this.unsupported=true;
+        try{this.ctx.close();}catch(e){}
+        this.ctx=null; return false;
+      }
+      const url = URL.createObjectURL(new Blob([ENGINE_WORKLET_SRC],{type:'application/javascript'}));
+      try{
+        await this.ctx.audioWorklet.addModule(url);
+      }catch(err){
+        console.warn('[engine-audio] worklet 載入失敗',err);
+        this.unsupported=true; URL.revokeObjectURL(url); return false;
+      }
+      URL.revokeObjectURL(url);
+
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.muted?0:this.vol;
+      /* 車室感：一點點低通與壓縮，避免高轉刺耳 */
+      const tone = this.ctx.createBiquadFilter();
+      tone.type='lowshelf'; tone.frequency.value=140; tone.gain.value=4;
+      const comp = this.ctx.createDynamicsCompressor();
+      comp.threshold.value=-18; comp.knee.value=20; comp.ratio.value=6;
+      comp.attack.value=.004; comp.release.value=.18;
+      tone.connect(comp); comp.connect(this.master); this.master.connect(this.ctx.destination);
+      this.chainIn = tone;
+      this.ready = true;
+      return true;
+    })();
+    return this.loading;
+  },
+
+  /* 依目前車輛建立引擎節點 */
+  async start(cfg){
+    const ok = await this.init();
+    if(!ok) return false;
+    if(this.ctx.state==='suspended') await this.ctx.resume();
+    if(this.node){ try{this.node.disconnect();}catch(e){} this.node=null; }
+    this.node = new AudioWorkletNode(this.ctx,'engine-processor',{
+      numberOfInputs:0, numberOfOutputs:1, outputChannelCount:[1],
+      processorOptions:cfg,
+    });
+    this.node.connect(this.chainIn);
+    this.running = true;
+    return true;
+  },
+
+  reconfigure(cfg){ if(this.node) this.node.port.postMessage({type:'config',...cfg}); },
+  bov(){ if(this.node) this.node.port.postMessage({type:'bov'}); },
+  pop(){ if(this.node) this.node.port.postMessage({type:'pop'}); },
+
+  set(name, value, smooth=.02){
+    if(!this.node) return;
+    const p=this.node.parameters.get(name); if(!p) return;
+    p.setTargetAtTime(value, this.ctx.currentTime, smooth);
+  },
+
+  stop(){
+    this.running=false;
+    if(this.node){
+      this.set('rpm',0,.05);
+      const n=this.node; this.node=null;
+      setTimeout(()=>{try{n.disconnect();}catch(e){}}, 300);
+    }
+    if(this.ctx) setTimeout(()=>{
+      if(!this.running && this.ctx && this.ctx.state==='running') this.ctx.suspend();
+    }, 500);
+  },
+
+  setVolume(v){
+    this.vol=Math.max(0,Math.min(1,+v||0));
+    if(this.master&&!this.muted) this.master.gain.setTargetAtTime(this.vol,this.ctx.currentTime,.03);
+    this.save();
+  },
+  toggleMute(){
+    this.muted=!this.muted;
+    if(this.master) this.master.gain.setTargetAtTime(this.muted?0:this.vol,this.ctx.currentTime,.02);
+    this.save(); return this.muted;
+  },
+  suspend(){ if(this.ctx&&this.ctx.state==='running') this.ctx.suspend(); },
+  resumeIfRunning(){ if(this.running&&this.ctx&&this.ctx.state==='suspended') this.ctx.resume(); },
+};
+EngineAudio.load();
+
+/* 由車輛資料組出 worklet 的設定 */
+function engineAudioConfig(S){
+  const cv = S.cfg.cv, eng = S.cfg.eng;
+  const cyl = (eng && +eng.cyl) || 4;
+  const build = (typeof car==='function'&&car()) ? car().build : {};
+  /* 排氣尾段影響管長與阻尼：四出比單出短而開放，聲音更亮 */
+  const tips = build.tips||'single';
+  const pipeL = {none:3.4, single:2.9, dual:2.5, quad:2.1}[tips] || 2.7;
+  const damp  = {none:.46, single:.36, dual:.30, quad:.24}[tips] || .34;
+  const refl  = {none:.80, single:.75, dual:.70, quad:.64}[tips] || .74;
+  return {
+    cylinders: cyl,
+    pipeLength: pipeL,
+    headerLength: cyl>=6 ? .72 : .58,
+    intakeLength: cyl>=6 ? .48 : .38,
+    turbo: !!cv.turbo, diesel: !!cv.diesel,
+    damp, reflect: refl,
+  };
+}
+
+/* 每幀把模擬狀態餵給音訊 */
+function pushEngineAudio(S){
+  if(!EngineAudio.running || !EngineAudio.node) return;
+  EngineAudio.set('rpm', S.rpm, .012);
+  EngineAudio.set('throttle', S.throttle, .02);
+  EngineAudio.set('boost', S.boost, .04);
+  EngineAudio.set('load', Math.min(1, Math.abs(S.gForce)/6), .05);
+  EngineAudio.set('cut', (S.fuelCut||S.starter>0)?1:0, .003);
+}
+
+/* 切分頁停聲，回來再開 */
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden) EngineAudio.suspend(); else EngineAudio.resumeIfRunning();
+});
 
 /* ===== 30-ui-core.js ===== */
 /* ==========================================================================
@@ -4457,10 +5638,13 @@ function bodyStance(spec, build){
    之後若直接寫 model.rotation.z，那個角度是在模型的區域座標下生效 ——
    經過 -90° Y 之後在世界座標會變成繞 X 軸，也就是左右側傾而不是前後俯仰。
    所以改成以世界 Z 軸 premultiply 到原始姿態上。 */
-function applyBodyTilt(THREE, model, tilt){
+function applyBodyTilt(THREE, model, tilt, roll){
   if(!model.userData.baseQuat) model.userData.baseQuat=model.quaternion.clone();
-  model.quaternion.copy(model.userData.baseQuat)
+  const q=model.quaternion.copy(model.userData.baseQuat)
     .premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), tilt));
+  /* roll：駕駛模式的側傾。繞世界 X 軸（車身縱軸），同樣用 premultiply
+     疊在俯仰之後，避免落進模型的區域座標。 */
+  if(roll) q.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), roll));
 }
 
 function car3DTireRadius(build){
@@ -4955,19 +6139,21 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
   const instance={root,scene,camera,renderer,controls,spec,car,THREE,dead:false,observer:null,
     env:{hemi,key,rim,warm,grid,floor,gridStep:.5,defaultBg:scene.background.getHex()},
     build:renderBuild,lamps:collectCar3DLamps(car),wheels:[],beams:null,loop:!!controls,
-    lightState:car3DLightState(renderBuild),drive:null};
+    lightState:car3DLightState(renderBuild)};
   CAR3D_INSTANCES.push(instance);
   car.traverse(o=>{if(o.userData.carWheel)instance.wheels.push(o);});
-  if(CAR3D_DRIVE.on)restoreCar3DDrive(instance);
   instance.nightApplied=instance.lightState.night;
   if(instance.lightState.night)applyCar3DNight(instance,true);
   applyCar3DLamps(instance);
   applyCar3DView(instance,initialView);
   /* render() 重建場景後，若車不在原點，把視角平移過去，不然鏡頭會盯著空地 */
-  if(instance.drive&&(instance.drive.x||instance.drive.z)){
-    camera.position.x+=instance.drive.x;camera.position.z+=instance.drive.z;
-    if(controls){controls.target.x+=instance.drive.x;controls.target.z+=instance.drive.z;}
+  const simNow=CAR3D_DRIVE.sim;
+  if(simNow&&(simNow.x||simNow.z)){
+    camera.position.x+=simNow.x;camera.position.z+=simNow.z;
+    if(controls){controls.target.x+=simNow.x;controls.target.z+=simNow.z;}
+    car.position.x=simNow.x;car.position.z=simNow.z;car.rotation.y=simNow.heading;
   }
+  instance._lastX=simNow?simNow.x:0; instance._lastZ=simNow?simNow.z:0;
   if(controls){
     controls.addEventListener('change',()=>syncCar3DView(instance));controls.update();
   }
@@ -4983,10 +6169,12 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
     renderer.setAnimationLoop(t=>{
       if(instance.dead)return;
       const dt=Math.min(.1,Math.max(.001,lastT?(t-lastT)/1000:.016));lastT=t;
-      if(CAR3D_DRIVE.on&&instance.car){
+      if(CAR3D_DRIVE.on&&instance.car&&instance===CAR3D_INSTANCES.find(i=>!i.dead)){
         stepCar3DDrive(instance,dt);
-        if(CAR3D_DRIVE.follow)car3DFollowCam(instance,dt);
+      }else if(CAR3D_DRIVE.on&&instance.car&&CAR3D_DRIVE.sim){
+        applySimToScene(instance,CAR3D_DRIVE.sim,dt);   // 前後比較：第二個場景跟著同一份狀態
       }
+      if(CAR3D_DRIVE.on&&CAR3D_DRIVE.follow)car3DFollowCam(instance,dt);
       if(controls.enabled)controls.update();
       renderer.render(scene,camera);
     });
@@ -5024,6 +6212,9 @@ function updateCar3DBuild(build){
     if(x.dead||!x.car)return;
     x.build=build;
     const stance=bodyStance(x.spec,build);
+    /* 傳動零件改了就重建模擬（保留位置與速度） */
+    const key=simKey(build);
+    if(CAR3D_DRIVE.sim && CAR3D_DRIVE.sim._key!==key) rebuildSim(build);
     x.car.traverse(o=>{
       if(o.userData.vehicleBody){
         const ride=o.userData.ride?car3DRideOffset(x.spec.id,build):0;
@@ -5125,7 +6316,7 @@ function applyCar3DLamps(x){
   if(x.dead||!x.lamps) return;
   const L=x.lightState||car3DLightState(null);
   const headI=[0,.45,1.2,2.4][L.head]||0;
-  const braking=L.brake||!!(x.drive&&x.drive.braking);
+  const braking=L.brake||!!x._braking;
   const tailI=braking?2.0:(L.head>0?.5:0);          // 小燈/大燈亮時尾燈跟著亮小燈檔
   const turnOn=L.turn==='hazard';
   x.lamps.forEach(({m,roles,base})=>{
@@ -5197,93 +6388,156 @@ setInterval(()=>{
 },400);
 
 /* ==========================================================================
-   互動預覽 · 模組二：車輛移動（駕駛模式）
+   互動預覽 · 駕駛模式
    --------------------------------------------------------------------------
-   自行車模型：heading' = v · tan(steer) / 軸距。
-   車頭朝 −X，前進向量 = (−cosθ, 0, sinθ)；車身朝向改 root 群組的 rotation.y
-   （模型本身的四元數留給 applyBodyTilt() 的俯仰，兩邊不能混）。
-   輪組自轉只轉 makeWheel 的 spin 子群組（懸吊與卡鉗不跟著轉），
-   自轉軸是輪組自己的 Z（camber/toe 定位後的輪軸）。
-   位置狀態存 CAR3D_DRIVE_POS（keyed by spec.id），render() 重建場景後不歸零。
+   物理全部在 22-sim-vehicle.js，這裡只負責：
+     收集輸入 → 每幀推進模擬 → 把狀態畫到 3D 與 HUD → 餵給引擎聲
+
+   車身朝向改 root 群組的 rotation.y（模型本身的四元數留給 applyBodyTilt()
+   的俯仰，兩邊混用會互相干擾）。輪組自轉只轉 makeWheel 的 spin 子群組。
    ========================================================================== */
-const CAR3D_DRIVE={on:false,follow:false,keys:{},joySteer:0,joyThrottle:0,padThrottle:0,padBrake:0};
-const CAR3D_DRIVE_POS=new Map();
-function car3DDriveState(x){
-  let d=CAR3D_DRIVE_POS.get(x.spec.id);
-  if(!d){d={x:0,z:0,heading:0,speed:0,steer:0,wheelSpin:0,braking:false,prevBraking:false};CAR3D_DRIVE_POS.set(x.spec.id,d);}
-  return d;
-}
-function restoreCar3DDrive(x){
-  const d=car3DDriveState(x);x.drive=d;
-  x.car.position.x=d.x;x.car.position.z=d.z;x.car.rotation.y=d.heading;
-}
-function car3DDriveInputs(){
+const CAR3D_DRIVE={on:false,follow:false,keys:{},joySteer:0,joyThrottle:0,
+  padThrottle:0,padBrake:0,padHandbrake:0,sim:null,hudAt:0};
+
+function car3DInputs(){
   const k=CAR3D_DRIVE.keys;
   const steer=(k.left?1:0)-(k.right?1:0)-CAR3D_DRIVE.joySteer;
   const thr=Math.max(k.up?1:0,CAR3D_DRIVE.padThrottle||0,Math.max(0,CAR3D_DRIVE.joyThrottle));
-  const brk=Math.max(k.down?1:0,CAR3D_DRIVE.padBrake||0,Math.max(0,-CAR3D_DRIVE.joyThrottle));
-  return {steer:Math.max(-1,Math.min(1,steer)),thr:Math.min(1,thr),brk:Math.min(1,brk)};
+  const brake=Math.max(k.down?1:0,CAR3D_DRIVE.padBrake||0,Math.max(0,-CAR3D_DRIVE.joyThrottle));
+  return {
+    steer:Math.max(-1,Math.min(1,steer)),
+    thr:Math.min(1,thr), brake:Math.min(1,brake),
+    handbrake:!!(k.space||CAR3D_DRIVE.padHandbrake),
+    clutch:!!k.clutch,
+  };
 }
-function stepCar3DDrive(x,dt){
-  const d=x.drive||(x.drive=car3DDriveState(x));
-  const inp=car3DDriveInputs(),cfg=car3DBodyConfig(x.spec.id);
-  const wheelbase=Math.max(2,Math.abs((+cfg.rearX||1.25)-(+cfg.frontX||-1.35)));
-  /* 轉向：往目標角平滑，最大 30° */
-  d.steer+=(inp.steer*.52-d.steer)*Math.min(1,dt*9);
-  /* 縱向：油門推進、煞車減速、停住後倒車；空氣阻力 + 滾動阻力 */
-  if(inp.thr>0) d.speed+=8.2*inp.thr*dt;
-  if(inp.brk>0){
-    if(d.speed>.25) d.speed=Math.max(0,d.speed-12*inp.brk*dt);
-    else d.speed-=4.6*inp.brk*dt;
+
+/* 模擬狀態是全域單例：多個場景（前後比較）共用同一台車 */
+function simKey(b){
+  b=b||{};
+  return [b.gearbox,b.finalDrive,b.diff,b.clutch,b.flywheel,
+          (b.gearRatios||[]).join(','),b.tips].join('|');
+}
+function ensureSim(build){
+  if(!CAR3D_DRIVE.sim){
+    CAR3D_DRIVE.sim=createVehicleSim(build||{}, null);
+    CAR3D_DRIVE.sim._key=simKey(build);
   }
-  d.speed-=(d.speed*.30+Math.sign(d.speed)*.45)*dt;
-  if(Math.abs(d.speed)<.05&&!inp.thr&&!inp.brk) d.speed=0;
-  d.speed=Math.max(-7,Math.min(38,d.speed));
-  d.braking=inp.brk>0&&d.speed>.25;
-  /* 自行車模型 */
-  d.heading+=d.speed*Math.tan(d.steer)/wheelbase*dt;
-  d.x+=-Math.cos(d.heading)*d.speed*dt;
-  d.z+= Math.sin(d.heading)*d.speed*dt;
-  x.car.position.x=d.x;x.car.position.z=d.z;x.car.rotation.y=d.heading;
-  /* 輪子：自轉疊在 camber/toe 之後，前輪在束角上加轉向角 */
-  const tireR=Math.max(.2,car3DTireRadius(x.build||{}));
-  d.wheelSpin+=d.speed*dt/tireR;
+  return CAR3D_DRIVE.sim;
+}
+function rebuildSim(build){
+  const old=CAR3D_DRIVE.sim;
+  CAR3D_DRIVE.sim=createVehicleSim(build||{}, null);
+  CAR3D_DRIVE.sim._key=simKey(build);
+  if(old){  // 保留位置與速度，換零件不該把車瞬移回原點
+    const S=CAR3D_DRIVE.sim;
+    Object.assign(S,{x:old.x,z:old.z,heading:old.heading,vx:old.vx,vy:old.vy,yaw:old.yaw,
+      w:old.w.slice(),rpm:old.rpm,running:old.running,starter:old.starter,
+      gear:old.gear,autoMode:old.autoMode,tc:old.tc});
+  }
+  if(EngineAudio.running) EngineAudio.reconfigure(engineAudioConfig(CAR3D_DRIVE.sim));
+  return CAR3D_DRIVE.sim;
+}
+
+function stepCar3DDrive(x,dt){
+  const S=ensureSim(x.build);
+  const input=CAR3D_DRIVE.on?car3DInputs():{steer:0,thr:0,brake:0};
+  /* 未進入駕駛模式時當作空檔，讓使用者可以單純補油聽聲音 */
+  if(!CAR3D_DRIVE.on && S.gear!==0){ S.gear=0; S.shifting=0; }
+  if(CAR3D_DRIVE.on && S.gear===0 && !S.autoMode && input.thr>0) S.gear=1;
+
+  /* 渦輪車放油門觸發洩壓閥 */
+  const prevThr=S._prevThr||0;
+  if(S.cfg.cv.turbo && prevThr>.5 && input.thr<.12 && S.boost>.25 && S.rpm>2600){
+    EngineAudio.bov();
+  }
+  /* 高轉放油門的排氣回火 */
+  if(prevThr>.6 && input.thr<.1 && S.rpm>3800 && Math.random()<.35) EngineAudio.pop();
+  S._prevThr=input.thr;
+
+  /* 固定步長積分：dt 大時多跑幾步，物理才穩 */
+  const steps=Math.max(1,Math.min(8,Math.ceil(dt/0.006)));
+  const h=dt/steps;
+  for(let i=0;i<steps;i++) stepVehicleSim(S,h,input);
+
+  pushEngineAudio(S);
+  applySimToScene(x,S,dt);
+  return S;
+}
+
+function applySimToScene(x,S,dt){
+  if(!x.car) return;
+  /* 自由視角時讓鏡頭跟著平移 —— 保留使用者自己轉好的角度與距離，
+     只把注視點跟著車走。少了這段，一踩油門車就開出畫面外了。 */
+  if(CAR3D_DRIVE.on && !CAR3D_DRIVE.follow && x.controls){
+    const dx=S.x-(x._lastX||0), dz=S.z-(x._lastZ||0);
+    if(dx||dz){
+      x.camera.position.x+=dx; x.camera.position.z+=dz;
+      x.controls.target.x+=dx; x.controls.target.z+=dz;
+      x.controls.update();
+    }
+  }
+  x._lastX=S.x; x._lastZ=S.z;
+  x.car.position.x=S.x; x.car.position.z=S.z; x.car.rotation.y=S.heading;
+  /* 輪子：自轉疊在 camber/toe 之後，前輪另加轉向角 */
   const M=x.THREE.MathUtils;
   const toeF=M.degToRad(+(x.build&&x.build.toeF)||0),toeR=M.degToRad(+(x.build&&x.build.toeR)||0);
   x.wheels.forEach(w=>{
-    const s=w.userData.spin;if(s)s.rotation.z=d.wheelSpin;
-    w.rotation.y=w.userData.side*(w.userData.front?toeF:toeR)+(w.userData.front?d.steer:0);
+    const u=w.userData, idx=u.front?(u.side<0?0:1):(u.side<0?2:3);
+    if(u.spin) u.spin.rotation.z += S.w[idx]*dt;
+    w.rotation.y=u.side*(u.front?toeF:toeR)+(u.front?S.steer:0);
   });
-  /* 地面與主光跟著車走：格線以整格平移（線不會滑動），影子相機跟著車 */
+  /* 車身動態姿態：加速後仰、煞車前傾、過彎側傾 */
+  const body=x.car.userData.simBody||(x.car.userData.simBody=(()=>{
+    let b=null;x.car.traverse(o=>{if(!b&&o.userData.vehicleBody)b=o;});return b;})());
+  if(body){
+    const pitch=Math.max(-.028,Math.min(.028,-S.gForce*0.0032));
+    const roll=Math.max(-.035,Math.min(.035,S.yaw*S.vx*0.0042));
+    body.userData.simPitch=(body.userData.simPitch||0)+(pitch-(body.userData.simPitch||0))*Math.min(1,dt*7);
+    body.userData.simRoll=(body.userData.simRoll||0)+(roll-(body.userData.simRoll||0))*Math.min(1,dt*7);
+    const stance=bodyStance(x.spec,x.build||{});
+    applyBodyTilt(x.THREE,body,stance.tilt+body.userData.simPitch,body.userData.simRoll);
+  }
+  /* 煞車燈：跟著實際煞車 */
+  const braking=S.brake>.08||S.handbrake>0;
+  if(braking!==!!x._braking){ x._braking=braking; applyCar3DLamps(x); }
+  /* 地面、主光與影子跟著車走 */
   const e=x.env;
   if(e){
     const step=e.gridStep||.5;
-    e.grid.position.x=Math.round(d.x/step)*step;
-    e.grid.position.z=Math.round(d.z/step)*step;
-    e.floor.position.x=d.x;e.floor.position.z=d.z;
-    if(e.nightGround){e.nightGround.position.x=d.x;e.nightGround.position.z=d.z;}
-    e.key.position.set(d.x-4.5,7,d.z+5);
-    e.key.target.position.set(d.x,0,d.z);
+    e.grid.position.x=Math.round(S.x/step)*step;
+    e.grid.position.z=Math.round(S.z/step)*step;
+    e.floor.position.x=S.x;e.floor.position.z=S.z;
+    if(e.nightGround){e.nightGround.position.x=S.x;e.nightGround.position.z=S.z;}
+    e.key.position.set(S.x-4.5,7,S.z+5);
+    e.key.target.position.set(S.x,0,S.z);
   }
-  if(d.braking!==d.prevBraking){d.prevBraking=d.braking;applyCar3DLamps(x);}
-  const hud=document.getElementById('driveSpeed');
-  if(hud)hud.textContent=Math.round(Math.abs(d.speed)*3.6);
+  /* HUD 每 60 ms 更新一次就夠，不必每幀動 DOM */
+  const now=performance.now();
+  if(now-CAR3D_DRIVE.hudAt>60){ CAR3D_DRIVE.hudAt=now; updateDriveHUD(S); }
 }
+
 function car3DFollowCam(x,dt){
-  const d=x.drive;if(!d)return;
+  const S=CAR3D_DRIVE.sim; if(!S) return;
   const cam=x.camera;
-  const px=d.x+Math.cos(d.heading)*6.6,pz=d.z-Math.sin(d.heading)*6.6,py=2.5;
-  const a=1-Math.exp(-dt*3.4);
+  /* 鏡頭掛在車後方，但飄移時看向車輛實際行進方向，比較好抓角度 */
+  const look=S.heading+Math.atan2(-S.vy,Math.max(2,Math.abs(S.vx)))*0.55;
+  const dist=6.2+Math.min(3.2,Math.abs(S.vx)*0.11);
+  const px=S.x+Math.cos(look)*dist, pz=S.z-Math.sin(look)*dist;
+  const py=2.3+Math.min(.8,Math.abs(S.vx)*0.012);
+  const a=1-Math.exp(-dt*3.6);
   cam.position.x+=(px-cam.position.x)*a;
   cam.position.y+=(py-cam.position.y)*a;
   cam.position.z+=(pz-cam.position.z)*a;
-  cam.lookAt(d.x,.95,d.z);
+  cam.lookAt(S.x,.95,S.z);
 }
+
 function setCar3DDriveMode(on){
   CAR3D_DRIVE.on=!!on;
   CAR3D_DRIVE.keys={};CAR3D_DRIVE.padThrottle=0;CAR3D_DRIVE.padBrake=0;
-  CAR3D_DRIVE.joySteer=0;CAR3D_DRIVE.joyThrottle=0;
-  CAR3D_INSTANCES.forEach(x=>{if(!x.dead&&on&&x.car)restoreCar3DDrive(x);});
+  CAR3D_DRIVE.padHandbrake=0;CAR3D_DRIVE.joySteer=0;CAR3D_DRIVE.joyThrottle=0;
+  const S=ensureSim(CAR3D_INSTANCES.find(i=>!i.dead)?.build);
+  if(on && S.gear===0) S.gear=1;
   setCar3DFollow(CAR3D_DRIVE.follow);
 }
 function setCar3DFollow(f){
@@ -5291,246 +6545,119 @@ function setCar3DFollow(f){
   const following=CAR3D_DRIVE.on&&CAR3D_DRIVE.follow;
   CAR3D_INSTANCES.forEach(x=>{
     if(x.dead||!x.controls) return;
-    x.controls.enabled=!following;             // 規格：OrbitControls 與跟隨模式會打架
-    if(!following&&x.drive){x.controls.target.set(x.drive.x,.8,x.drive.z);x.controls.update();}
+    x.controls.enabled=!following;   // OrbitControls 與跟隨模式會打架
+    const S=CAR3D_DRIVE.sim;
+    if(!following&&S){x.controls.target.set(S.x,.8,S.z);x.controls.update();}
   });
 }
 function resetCar3DDrive(){
-  CAR3D_DRIVE_POS.clear();
+  const S=CAR3D_DRIVE.sim;
+  if(S){
+    Object.assign(S,{x:0,z:0,heading:0,vx:0,vy:0,yaw:0,w:[0,0,0,0],
+      steer:0,gear:CAR3D_DRIVE.on?1:0,shifting:0,drift:0,speed:0,gForce:0});
+  }
   CAR3D_INSTANCES.forEach(x=>{
     if(x.dead||!x.car) return;
-    x.drive=null;
-    x.car.position.set(0,0,0);x.car.rotation.y=0;
-    x.wheels.forEach(w=>{const s=w.userData.spin;if(s)s.rotation.z=0;});
+    x.car.position.set(0,0,0);x.car.rotation.y=0;x._lastX=0;x._lastZ=0;
+    x.wheels.forEach(w=>{if(w.userData.spin)w.userData.spin.rotation.z=0;});
     if(x.env){
       x.env.grid.position.set(0,0,0);x.env.floor.position.set(0,.005,0);
       if(x.env.nightGround)x.env.nightGround.position.set(0,-.012,0);
       x.env.key.position.set(-4.5,7,5);x.env.key.target.position.set(0,0,0);
     }
-    if(x.build)updateCar3DBuild(x.build);
     const view=CAR3D_VIEWS.get(x.spec.id);
     if(view)applyCar3DView(x,view);
     if(!x.loop)renderCar3DOnce(x);
   });
-  const hud=document.getElementById('driveSpeed');if(hud)hud.textContent='0';
+  updateDriveHUD(S);
 }
-const CAR3D_KEYMAP={ArrowUp:'up',KeyW:'up',ArrowDown:'down',KeyS:'down',ArrowLeft:'left',KeyA:'left',ArrowRight:'right',KeyD:'right'};
+
+/* 換檔（手排）*/
+function car3DShift(dir){
+  const S=CAR3D_DRIVE.sim; if(!S||S.autoMode) return;
+  shiftTo(S, S.gear+dir);
+}
+function toggleCar3DAuto(){
+  const S=ensureSim(); S.autoMode=!S.autoMode;
+  if(S.autoMode && S.gear<1) S.gear=1;
+  return S.autoMode;
+}
+
+const CAR3D_KEYMAP={ArrowUp:'up',KeyW:'up',ArrowDown:'down',KeyS:'down',
+  ArrowLeft:'left',KeyA:'left',ArrowRight:'right',KeyD:'right',Space:'space',ShiftLeft:'clutch'};
 window.addEventListener('keydown',e=>{
   if(!CAR3D_DRIVE.on) return;
   const t=e.target;if(t&&/^(input|textarea|select)$/i.test(t.tagName)) return;
+  if(e.code==='KeyE'||e.code==='BracketRight'){car3DShift(1);e.preventDefault();return;}
+  if(e.code==='KeyQ'||e.code==='BracketLeft'){car3DShift(-1);e.preventDefault();return;}
   const k=CAR3D_KEYMAP[e.code];if(!k) return;
   CAR3D_DRIVE.keys[k]=true;e.preventDefault();
 });
 window.addEventListener('keyup',e=>{const k=CAR3D_KEYMAP[e.code];if(k)CAR3D_DRIVE.keys[k]=false;});
 
-/* ==========================================================================
-   互動預覽 · 模組三：引擎聲（Web Audio 合成）
-   --------------------------------------------------------------------------
-   不用錄音：授權查證成本高、base64 內嵌會撐大單檔，而且固定音檔沒辦法
-   跟轉速即時連動。合成鏈（規格）：
-     鋸齒基頻 @ 點火頻率 f = rpm/60 × (缸數/2)
-       + ×2/×3/×4 諧波（振幅遞減 0.6/0.35/0.2）
-       + 帶通白噪音（進氣／排氣氣流）
-     → 低通（cutoff 隨負載開）→ WaveShaper 輕失真（負載大加重）→ 總音量
-   渦輪車放油門觸發 0.25 s 洩壓閥噪音掃頻。音量/靜音存 localStorage。
-   ========================================================================== */
-const CAR3D_REDLINE={'4G63T':7000,'420A':6500,S50B30:7280,S50B32:7600,S50B30US:6800,S52B32:7000,
-  M42B18:6500,M44B19:6500,M50B20:6500,M50B20TU:6500,M50B25:6500,M50B25TU:6500,
-  M52B20:6500,M52B25:6500,M52B28:6500,M40B16:6000,M40B18:6000,M43B16:6000,M43B18:6000,
-  M41D17:4800,M51D25:4800,M51D25OL:4800};
-function car3DEngineSpec(){
-  const c=typeof car==='function'?car():null;
-  const eng=(c&&typeof carEngine==='function')?carEngine(c):null;
-  const mdl=(c&&typeof mdlById==='function')?mdlById(c.modelId):null;
-  const cyl=(eng&&+eng.cyl)||4;
-  const redline=(eng&&CAR3D_REDLINE[eng.id])||(eng&&eng.diesel?4800:(eng&&eng.cam==='DOHC'?6800:6200));
-  return {cyl,redline,idle:eng&&eng.diesel?760:800,diesel:!!(eng&&eng.diesel),
-          turbo:!!(mdl&&mdl.turbo),name:eng?eng.name:'引擎'};
-}
-const C3AUD={ctx:null,nodes:null,running:false,starting:false,rpm:0,slider:0,hold:0,
-  vol:.7,muted:false,spec:null,raf:0,last:0,startAt:0,bovAt:0,lastThr:0,limitPhase:0};
-try{
-  const s=JSON.parse(localStorage.getItem('garage.c3aud')||'{}');
-  if(Number.isFinite(+s.vol))C3AUD.vol=Math.max(0,Math.min(1,+s.vol));
-  C3AUD.muted=!!s.muted;
-}catch(e){}
-function c3audSave(){try{localStorage.setItem('garage.c3aud',JSON.stringify({vol:C3AUD.vol,muted:C3AUD.muted}));}catch(e){}}
-function c3audGraph(){
-  const ctx=C3AUD.ctx;
-  const master=ctx.createGain();master.gain.value=C3AUD.muted?0:C3AUD.vol;
-  master.connect(ctx.destination);
-  const comp=ctx.createDynamicsCompressor();
-  comp.threshold.value=-16;comp.knee.value=18;comp.ratio.value=8;comp.attack.value=.004;comp.release.value=.16;
-  comp.connect(master);
-  const shaper=ctx.createWaveShaper();
-  const N=1024,curve=new Float32Array(N);
-  for(let i=0;i<N;i++){const u=i/(N-1)*2-1;curve[i]=Math.tanh(2.6*u);}
-  shaper.curve=curve;shaper.oversample='2x';shaper.connect(comp);
-  const pre=ctx.createGain();pre.gain.value=.8;pre.connect(shaper);       // 失真前推量＝負載
-  const lp=ctx.createBiquadFilter();lp.type='lowpass';lp.frequency.value=900;lp.Q.value=.6;lp.connect(pre);
-  const sum=ctx.createGain();sum.gain.value=0;sum.connect(lp);
-  const HARM=[[1,.5],[2,.30],[3,.175],[4,.10]];   // 規格比例 1/.6/.35/.2 × 總縮放 .5
-  const oscs=HARM.map(([n,a],i)=>{
-    const o=ctx.createOscillator();o.type='sawtooth';o.frequency.value=40*n;
-    if(i)o.detune.value=i*4;                       // 些微失諧 → 機械拍頻感
-    const g=ctx.createGain();g.gain.value=a;
-    o.connect(g);g.connect(sum);o.start();
-    return {o,n};
-  });
-  const nbuf=ctx.createBuffer(1,ctx.sampleRate*2,ctx.sampleRate);
-  const arr=nbuf.getChannelData(0);
-  for(let i=0;i<arr.length;i++)arr[i]=Math.random()*2-1;
-  const noise=ctx.createBufferSource();noise.buffer=nbuf;noise.loop=true;
-  const nbp=ctx.createBiquadFilter();nbp.type='bandpass';nbp.frequency.value=900;nbp.Q.value=.7;
-  const ng=ctx.createGain();ng.gain.value=0;
-  noise.connect(nbp);nbp.connect(ng);ng.connect(sum);noise.start();
-  return {master,comp,shaper,pre,lp,sum,oscs,nbuf,nbp,ng};
-}
-/* 洩壓閥：0.25 s 高頻噪音往下掃（渦輪車限定） */
-function c3audBOV(){
-  const ctx=C3AUD.ctx,n=C3AUD.nodes,t=ctx.currentTime;
-  const src=ctx.createBufferSource();src.buffer=n.nbuf;
-  const bp=ctx.createBiquadFilter();bp.type='bandpass';bp.Q.value=5;
-  bp.frequency.setValueAtTime(2600,t);
-  bp.frequency.exponentialRampToValueAtTime(650,t+.25);
-  const g=ctx.createGain();
-  g.gain.setValueAtTime(.0001,t);
-  g.gain.exponentialRampToValueAtTime(.55,t+.03);
-  g.gain.exponentialRampToValueAtTime(.0001,t+.25);
-  src.connect(bp);bp.connect(g);g.connect(n.comp);
-  src.start(t);src.stop(t+.3);
-}
-/* 起動馬達：斷續的低頻脈衝，0.9 s 後點火 */
-function c3audStarter(t0){
-  const ctx=C3AUD.ctx,n=C3AUD.nodes;
-  const o=ctx.createOscillator();o.type='square';o.frequency.value=44;
-  const am=ctx.createOscillator();am.type='sine';am.frequency.value=10.5;
-  const amG=ctx.createGain();amG.gain.value=.5;
-  const g=ctx.createGain();g.gain.value=0;
-  am.connect(amG);amG.connect(g.gain);
-  o.connect(g);g.connect(n.lp);
-  g.gain.setValueAtTime(.0001,t0);
-  g.gain.linearRampToValueAtTime(.5,t0+.08);
-  g.gain.setValueAtTime(.5,t0+.72);
-  g.gain.linearRampToValueAtTime(.0001,t0+.92);
-  o.start(t0);o.stop(t0+1);am.start(t0);am.stop(t0+1);
-}
-function c3audStart(){
-  const AC=window.AudioContext||window.webkitAudioContext;
-  if(!AC){if(typeof toast==='function')toast('這個瀏覽器不支援 Web Audio');return;}
-  if(!C3AUD.ctx)C3AUD.ctx=new AC();
-  if(!C3AUD.nodes)C3AUD.nodes=c3audGraph();
-  C3AUD.ctx.resume();
-  C3AUD.spec=car3DEngineSpec();
-  C3AUD.running=true;C3AUD.starting=true;C3AUD.rpm=0;C3AUD.lastThr=0;
-  const t=C3AUD.ctx.currentTime;
-  C3AUD.startAt=performance.now()/1000;   // 流程計時用牆鐘（ctx 時鐘在背景可能凍結）
-  c3audStarter(t);
-  const g=C3AUD.nodes.sum.gain;
-  g.cancelScheduledValues(t);g.setValueAtTime(.0001,t);
-  g.exponentialRampToValueAtTime(.9,t+1.15);
-  cancelAnimationFrame(C3AUD.raf);C3AUD.last=0;
-  C3AUD.raf=requestAnimationFrame(c3audLoop);
-  c3audUI();
-}
-function c3audStop(quiet){
-  if(!C3AUD.ctx)return;
-  const t=C3AUD.ctx.currentTime;
-  C3AUD.running=false;C3AUD.starting=false;C3AUD.rpm=0;C3AUD.hold=0;
-  cancelAnimationFrame(C3AUD.raf);
-  if(C3AUD.nodes){
-    const g=C3AUD.nodes.sum.gain;
-    g.cancelScheduledValues(t);g.setValueAtTime(Math.max(.0001,g.value),t);
-    g.exponentialRampToValueAtTime(.0001,t+.35);
+/* --------------------------------------------------------------------------
+   引擎啟動／熄火
+   -------------------------------------------------------------------------- */
+async function toggleCar3DEngine(){
+  const S=ensureSim(CAR3D_INSTANCES.find(i=>!i.dead)?.build);
+  if(EngineAudio.running || S.running || S.starter>0){
+    const cur=CAR3D_DRIVE.sim;
+    cur.running=false; cur.starter=0; cur.throttle=0;
+    EngineAudio.stop();
+    engineUIRefresh();
+    return;
   }
-  setTimeout(()=>{if(!C3AUD.running&&C3AUD.ctx&&C3AUD.ctx.state==='running')C3AUD.ctx.suspend();},500);
-  const el=document.getElementById('c3RpmVal');if(el)el.textContent='0';
-  const bar=document.getElementById('c3RpmBar');if(bar)bar.style.width='0';
-  if(!quiet)c3audUI();
-}
-function toggleCar3DEngine(){C3AUD.running?c3audStop():c3audStart();}
-function c3audLoop(ts){
-  if(!C3AUD.running)return;
-  C3AUD.raf=requestAnimationFrame(c3audLoop);
-  const dt=Math.min(.25,C3AUD.last?(ts-C3AUD.last)/1000:.016);C3AUD.last=ts;
-  const S=C3AUD.spec,n=C3AUD.nodes,ctx=C3AUD.ctx,t=ctx.currentTime;
-  const sinceStart=performance.now()/1000-C3AUD.startAt;
-  let thr=Math.max(C3AUD.hold,C3AUD.slider,CAR3D_DRIVE.on?car3DDriveInputs().thr:0);
-  const idle=S.idle,red=S.redline;
-  if(C3AUD.starting){
-    if(sinceStart<.85)C3AUD.rpm=90+sinceStart*260;   // 起動馬達拖轉
-    else{C3AUD.starting=false;C3AUD.rpm=360;}
-  }else{
-    let target=idle+thr*(red-idle);
-    if(sinceStart<1.6)target=Math.max(target,idle+(1.6-sinceStart)*430);  // 點火竄升再回落
-    if(CAR3D_DRIVE.on){                              // 駕駛模式：車速墊高轉速（掛檔感）
-      let speed=0;
-      CAR3D_INSTANCES.some(x=>{if(!x.dead&&x.drive){speed=Math.abs(x.drive.speed);return true;}return false;});
-      target=Math.max(target,Math.min(red*.85,idle+speed*95));
-    }
-    const rise=(red-idle)/.85,fall=(red-idle)/1.6;
-    if(target>C3AUD.rpm)C3AUD.rpm=Math.min(target,C3AUD.rpm+rise*dt*(.35+.65*thr));
-    else C3AUD.rpm=Math.max(target,C3AUD.rpm-fall*dt);
-    if(C3AUD.rpm>=red-30&&thr>.85){                  // 斷油限轉跳動
-      C3AUD.limitPhase+=dt*26;
-      C3AUD.rpm=red-30-Math.max(0,Math.sin(C3AUD.limitPhase))*150;
-    }
+  const ok=await EngineAudio.start(engineAudioConfig(S));
+  if(!ok){
+    if(typeof toast==='function') toast(EngineAudio.unsupported?'這個瀏覽器不支援 AudioWorklet':'音訊啟動失敗');
+    return;
   }
-  const f=C3AUD.rpm/60*(S.cyl/2);                    // 點火頻率
-  n.oscs.forEach(({o,n:h})=>o.frequency.setTargetAtTime(Math.min(4200,Math.max(8,f*h)),t,.02));
-  const load=Math.min(1,thr*.8+.2*(C3AUD.rpm/red));
-  const tips=(typeof car==='function'&&car()&&car().build&&car().build.tips)||'single';
-  const tipF={none:.9,single:1,dual:1.12,quad:1.3}[tips]||1;   // 規格：四出比單出開得更亮
-  n.lp.frequency.setTargetAtTime(Math.min(11000,(260+f*3.4+4200*load)*tipF),t,.04);
-  n.pre.gain.setTargetAtTime(.55+1.5*load+(S.diesel?.35:0),t,.05);
-  n.ng.gain.setTargetAtTime(.02+.11*thr+.02*(C3AUD.rpm/red)+(S.diesel?.05:0)+(S.turbo?.05*thr:0),t,.05);
-  n.nbp.frequency.setTargetAtTime(500+C3AUD.rpm*.5+(S.turbo?thr*1800:0),t,.05);
-  if(sinceStart>1.2)n.sum.gain.setTargetAtTime(.5+.45*load,t,.08);
-  if(S.turbo&&C3AUD.lastThr>.5&&thr<.15&&C3AUD.rpm>2600&&t-C3AUD.bovAt>.9){C3AUD.bovAt=t;c3audBOV();}
-  C3AUD.lastThr+=(thr-C3AUD.lastThr)*Math.min(1,dt*6);
-  const el=document.getElementById('c3RpmVal');
-  if(el){
-    el.textContent=Math.round(C3AUD.rpm);
-    const bar=document.getElementById('c3RpmBar');
-    if(bar){
-      const p=Math.min(100,C3AUD.rpm/red*100);
-      bar.style.width=p+'%';
-      bar.style.background=p>92?'var(--red)':p>78?'var(--orange)':'var(--tech)';
-    }
-  }
+  /* 起動：交給物理模型的起動馬達，0.9 秒後點著 */
+  const cur=CAR3D_DRIVE.sim;
+  cur.running=false; cur.rpm=0; cur.starter=0.9;
+  engineUIRefresh();
 }
-function setCar3DVolume(v){
-  C3AUD.vol=Math.max(0,Math.min(1,+v||0));
-  if(C3AUD.nodes&&!C3AUD.muted)C3AUD.nodes.master.gain.setTargetAtTime(C3AUD.vol,C3AUD.ctx.currentTime,.03);
-  c3audSave();
+
+/* 沒進駕駛模式時，油門直接推轉速（空檔補油） */
+function setCar3DThrottle(v){
+  const S=ensureSim(); S._sliderThr=Math.max(0,Math.min(1,+v||0));
 }
-function toggleCar3DMute(){
-  C3AUD.muted=!C3AUD.muted;
-  if(C3AUD.nodes)C3AUD.nodes.master.gain.setTargetAtTime(C3AUD.muted?0:C3AUD.vol,C3AUD.ctx.currentTime,.02);
-  c3audSave();c3audUI();
+function holdCar3DThrottle(on){
+  const S=ensureSim(); S._holdThr=on?1:0;
 }
-function setCar3DThrottle(v){C3AUD.slider=Math.max(0,Math.min(1,+v||0));}
-function holdCar3DThrottle(on){C3AUD.hold=on?1:0;}
-function c3audUI(){
-  const b=document.getElementById('c3EngineBtn');
-  if(b){b.textContent=C3AUD.running?'熄火':'發動引擎';b.classList.toggle('pri',!C3AUD.running);}
-  const m=document.getElementById('c3MuteBtn');
-  if(m)m.textContent=C3AUD.muted?'取消靜音':'靜音';
-  const lbl=document.getElementById('c3EngineName');
-  if(lbl){
-    const s=car3DEngineSpec();
-    lbl.textContent=`${s.name} · ${s.cyl} 缸 · 紅線 ${s.redline} rpm${s.turbo?' · 渦輪（放油門有洩壓閥）':''}`;
-  }
-}
-/* 規格：切分頁要 suspend()，不然背景會一直發聲；離開設計預覽頁直接熄火 */
-document.addEventListener('visibilitychange',()=>{
-  if(!C3AUD.ctx)return;
-  if(document.hidden){if(C3AUD.ctx.state==='running')C3AUD.ctx.suspend();}
-  else if(C3AUD.running){C3AUD.ctx.resume();C3AUD.last=0;}
-});
+/* 空檔補油：把滑桿與按住的值餵進輸入。
+   ★ dt 一定要用真實經過時間 ★ 寫死 1/60 的話，畫面掉到 20fps 時整個模擬
+   會變成慢動作（引擎起動要花三倍時間、車速對不上），在效能較差的機器上很明顯。 */
+(function neutralThrottleLoop(){
+  let last=0;
+  const tick=(ts)=>{
+    requestAnimationFrame(tick);
+    const S=CAR3D_DRIVE.sim;
+    const dt=Math.min(.12, last?(ts-last)/1000:1/60);
+    last=ts;
+    if(!S||CAR3D_DRIVE.on||dt<=0) return;
+    const thr=Math.max(S._sliderThr||0,S._holdThr||0);
+    const steps=Math.max(1,Math.min(10,Math.ceil(dt/0.006)));
+    const h=dt/steps;
+    for(let i=0;i<steps;i++) stepVehicleSim(S,h,{steer:0,thr,brake:0});
+    pushEngineAudio(S);
+    const now=performance.now();
+    if(now-CAR3D_DRIVE.hudAt>60){CAR3D_DRIVE.hudAt=now;updateDriveHUD(S);}
+  };
+  requestAnimationFrame(tick);
+})();
+
+function setCar3DVolume(v){ EngineAudio.setVolume(v); }
+function toggleCar3DMute(){ EngineAudio.toggleMute(); engineUIRefresh(); }
+
+/* 離開設計預覽頁自動熄火 */
 window.addEventListener('hashchange',()=>{
-  if(C3AUD.running&&!String(location.hash).startsWith('#build/design'))c3audStop(true);
+  if(EngineAudio.running&&!String(location.hash).startsWith('#build/design')){
+    const S=CAR3D_DRIVE.sim; if(S) S.running=false;
+    EngineAudio.stop();
+  }
 });
+
 
 const carSVG=carPhoto;
 
@@ -6016,6 +7143,11 @@ const DPARTS = [
   {id:'brake',  name:'煞車系統', ic:'disc',   val:b=>brakeProductsOf(car()).find(x=>x.id===b.brakeKit)?.name},
   {id:'tint',   name:'隔熱紙',   ic:'eye',    val:b=>TINT_PRODUCTS.find(x=>x.id===b.tintProduct)?.name},
   {id:'aero',   name:'空力套件', ic:'wind',   val:b=>aeroProductsOf(car()).find(x=>x.id===b.aeroKit)?.name},
+  {id:'drive',  name:'傳動系統', ic:'gauge',  val:b=>{
+    const c=car(),st=stockDrivetrain(c);
+    const g=gearboxById(b.gearbox||st.gearbox),f=finalDriveById(b.finalDrive||st.finalDrive);
+    return [g&&g.name,f&&('終傳 '+f.label)].filter(Boolean).join(' · ');
+  }},
   {id:'alignment',name:'底盤定位',ic:'suspension',val:b=>`前 ${(+b.camberF).toFixed(1)}° / 後 ${(+b.camberR).toFixed(1)}°`},
 ];
 
@@ -6179,6 +7311,7 @@ function partPanel(b, c){
         :'這個車身目前只開放原廠網格預覽。尚未取得專用 3D 零件的套件僅保留官方資料，不會硬套到車上。'}</div>
       <div class="hint">尾翼、引擎蓋、寬體與排氣必須有這個車身的專用建模才會出現在 3D 預覽。</div></div>`;
   }
+  if(DPART==='drive') body = drivetrainPanel(b, c);
   if(DPART==='alignment') body = alignmentPanel(b);
   return head + body;
 }
@@ -6261,6 +7394,198 @@ function alignmentChart(b){
     <text x="110" y="13">抓地 ${s.grip}</text><text x="194" y="73">直線 ${s.speed}</text>
     <text x="164" y="181">轉向 ${s.turn}</text><text x="56" y="181">穩定 ${s.stable}</text><text x="25" y="73">胎耗 ${s.wear}</text>
   </svg><div class="chart-readout">${Object.entries({抓地:s.grip,直線:s.speed,轉向:s.turn,穩定:s.stable,胎耗:s.wear}).map(([k,v])=>`<span><i style="--v:${v}%"></i><b>${k}</b><em>${v}</em></span>`).join('')}</div></div>`;
+}
+
+/* ==========================================================================
+   傳動系統面板
+   --------------------------------------------------------------------------
+   資料與來源標註在 12-data-drivetrain.js。這裡負責顯示與試算。
+   加速與極速是用引擎扭力曲線 + 齒比即時算的，不是查表。
+   ========================================================================== */
+function confBadge(x){
+  if(!x) return '';
+  const map={oem:['原廠','b'],trade:['同業技術文獻','b'],vendor:['廠商公布','b'],
+             community:['社群共識','y'],est:['★估算值★','y']};
+  const m=map[x.conf]; if(!m) return '';
+  return `<span class="chip ${m[1]==='y'?'warn':''}" style="font-size:11px">${m[0]}</span>`;
+}
+
+function driveOption(item, current, key){
+  const on = current===item.id;
+  return `<div class="dt-opt ${on?'on':''}" role="button" tabindex="0"
+    onclick="setDrivetrain('${key}','${item.id}')"
+    onkeydown="if(event.key==='Enter')setDrivetrain('${key}','${item.id}')">
+    <div class="dt-head"><b>${esc(item.name)}</b>${confBadge(item)}</div>
+    <div class="dt-sub">${esc(item.brand||'')}${item.fits?' · '+esc(item.fits):''}${item.use?' · '+esc(item.use):''}</div>
+    ${item.desc?`<div class="dt-desc">${esc(item.desc)}</div>`:''}
+    ${item.note?`<div class="dt-desc mut">${esc(item.note)}</div>`:''}
+  </div>`;
+}
+
+function drivetrainPanel(b, c){
+  const st = stockDrivetrain(c);
+  const gb = gearboxById(b.gearbox||st.gearbox) || gearboxesOf(c)[0];
+  const fd = finalDriveById(b.finalDrive||st.finalDrive) || finalDrivesOf(c)[0];
+  const df = diffById(b.diff||st.diff) || diffsOf(c)[0];
+  const cl = clutchById(b.clutch||st.clutch) || clutchesOf(c)[0];
+  const fw = flywheelById(b.flywheel||st.flywheel) || flywheelsOf(c)[0];
+  const gears = (Array.isArray(b.gearRatios)&&b.gearRatios.length) ? b.gearRatios : gb.gears;
+  const eng = carEngine(c), cv = engineCurve(eng?eng.id:'');
+  const tireR = car3DTireRadius(b);
+  const kphAt = (ratio,rpm)=> rpm*Math.PI/30/(ratio*fd.ratio)*tireR*3.6;
+
+  const rows = gears.map((g,i)=>{
+    const top = kphAt(g, cv.cut);
+    const at100 = 100/3.6/tireR*(g*fd.ratio)*30/Math.PI;
+    return `<tr>
+      <td class="num">${i+1}</td>
+      <td><input type="number" class="dt-ratio" step="0.001" min="0.4" max="6" value="${(+g).toFixed(3)}"
+          aria-label="第 ${i+1} 檔齒比" onchange="setGearRatio(${i},this.value)"></td>
+      <td class="num">${(g*fd.ratio).toFixed(2)}</td>
+      <td class="num">${top.toFixed(0)}</td>
+      <td class="num">${at100>cv.cut?'—':at100.toFixed(0)}</td>
+    </tr>`;
+  }).join('');
+
+  /* 0–100 試算：用扭力曲線在各檔位積分（簡化：忽略換檔損失以外的阻力細節） */
+  const accel = estimate0to100(b, c, gb, fd, gears, cv, tireR);
+
+  return `<div style="padding-top:var(--s2)">
+    ${DT_CSS}
+    <div class="note b">傳動改裝在 3D 預覽裡是「開得出來」的：齒比與終傳直接決定加速與換檔轉速，
+      LSD 的鎖定率會影響出彎內輪空轉與飄移的可控性，飛輪慣量改變補油的升轉速度與引擎聲。</div>
+
+    <div class="dt-sum">
+      <div><span>總減速比（一檔）</span><b>${(gears[0]*fd.ratio).toFixed(2)}</b></div>
+      <div><span>極速（${gears.length}檔斷油）</span><b>${kphAt(gears[gears.length-1],cv.cut).toFixed(0)} km/h</b></div>
+      <div><span>0–100 估算</span><b>${accel?accel.toFixed(1)+' 秒':'—'}</b></div>
+      <div><span>飛輪慣量</span><b>${flywheelInertia(fw.kg).toFixed(3)} kg·m²</b></div>
+    </div>
+
+    <h4 class="dt-h">變速箱</h4>
+    <div class="dt-list">${gearboxesOf(c).map(x=>driveOption(x,gb.id,'gearbox')).join('')}</div>
+
+    <h4 class="dt-h">各檔齒比${b.gearRatios?'（已自訂）':''}</h4>
+    <table class="dt-table"><thead><tr>
+      <th>檔</th><th>齒比</th><th>總減速</th><th>斷油極速<br><small>km/h</small></th><th>100 km/h<br><small>rpm</small></th>
+    </tr></thead><tbody>${rows}</tbody></table>
+    <div class="btnrow" style="margin-top:8px">
+      <button class="btn sm" onclick="resetGearRatios()">回到這顆變速箱的原始齒比</button>
+    </div>
+    <div class="hint">直接改數字就會即時反映在 3D 的加速與換檔轉速上。密齒比讓每次換檔的轉速掉落變小，
+      引擎更容易待在扭力帶裡；但一檔拉長會犧牲起步。</div>
+
+    <h4 class="dt-h">終傳比</h4>
+    <div class="dt-chips">${finalDrivesOf(c).map(x=>`
+      <button class="dt-chip ${fd.id===x.id?'on':''}" onclick="setDrivetrain('finalDrive','${x.id}')"
+        title="${esc((x.code||'')+' '+(x.use||''))}">
+        ${x.label}${x.oe?'':' <small>非原廠</small>'}</button>`).join('')}</div>
+    <div class="dt-desc" style="margin-top:6px">${esc(fd.code||'')}${fd.use?' — '+esc(fd.use):''} ${confBadge(fd)}</div>
+    ${fd.stages?`<div class="note y" style="margin-top:var(--s2)">
+      <b>AWD 的終傳不是單一齒輪。</b> 變速箱出來先經一次減速 ${fd.stages.primary}，
+      進中央差速器後分成前後兩路：前差速器 ${fd.stages.front}；後方再經分動箱 ${fd.stages.transfer}
+      到後差速器 ${fd.stages.rear}。上面的 ${fd.label} 是換算後的等效總終傳。</div>`:''}
+
+    <h4 class="dt-h">差速器（LSD）</h4>
+    <div class="dt-list">${diffsOf(c).map(x=>driveOption(x,df.id,'diff')).join('')}</div>
+    <div class="note ${df.est?'y':'b'}" style="margin-top:var(--s2)">
+      <b>「鎖定率 25%」不是固定值。</b> 廠商的定義是「可跨傳到有抓地力那一輪的扭力，
+      最多為輸入扭力的 25%」—— 所以同一顆差速器裝在 240 Nm 的引擎上，效果會比裝在 360 Nm 的明顯。
+      物理模型是照這個定義寫的。<br>
+      目前設定：加速側 ${(df.lockA*100).toFixed(0)}%、減速側 ${(df.lockD*100).toFixed(0)}%、預壓 ${df.pre} Nm${df.ways?`、${df.ways}way`:''}。
+    </div>
+
+    <h4 class="dt-h">離合器</h4>
+    <div class="dt-list">${clutchesOf(c).map(x=>driveOption(x,cl.id,'clutch')).join('')}</div>
+    <div class="kv"><span>容許扭力</span><b>${cl.nm} Nm</b></div>
+    <div class="kv"><span>引擎峰值扭力</span><b>${cv.nm} Nm</b></div>
+    ${cv.nm>cl.nm*0.92?`<div class="note r" style="margin-top:var(--s2)">
+      引擎峰值扭力已接近或超過這顆離合器的容許值，3D 裡會出現打滑（轉速上去但車速跟不上）。</div>`:''}
+
+    <h4 class="dt-h">飛輪</h4>
+    <div class="dt-list">${flywheelsOf(c).map(x=>driveOption(x,fw.id,'flywheel')).join('')}</div>
+    <div class="hint">飛輪越輕，空檔補油的升轉越快、放油門掉得也越快 —— 在 3D 裡按住「吹油」最容易聽出差別。
+      代價是低速換檔與起步更容易熄火，市區會比較累。</div>
+
+    <div class="src">齒比、終傳與零件規格的來源與可信度分級見各項目標籤。
+      標示★估算值★的是廠商不公布規格（例如 Quaife 官方明文拒絕公布扭力偏壓比），
+      由同型產品推估，僅供模擬，不可作為採購依據。</div>
+  </div>`;
+}
+
+/* 0–100 km/h 估算：逐步積分，含換檔時間與空氣阻力 */
+function estimate0to100(b, c, gb, fd, gears, cv, tireR){
+  const body = bodyById(c.bodyId);
+  const plat = platOf(c);
+  const mass = (body&&+body.kg) || (plat==='dsm2g'?1350:1400);
+  const drive = plat==='dsm2g' ? (mdlById(c.modelId)?.drive==='AWD'?'awd':'fwd') : 'rwd';
+  const muLimit = drive==='awd' ? 1.05 : 0.55;      // 驅動輪能傳到地面的加速度上限（g）
+  let v=0, t=0, gear=0;
+  for(let i=0;i<20000;i++){
+    const ratio=gears[gear]*fd.ratio;
+    const rpm=v/tireR*ratio*30/Math.PI;
+    if(rpm>cv.cut){
+      if(gear>=gears.length-1) break;
+      gear++; t+=0.25; continue;                     // 換檔耗時
+    }
+    const T=cv.nm*torqueFactor(cv, Math.max(1000,rpm))*ratio*0.92;   // 傳動效率
+    let a=T/tireR/mass;
+    a=Math.min(a, muLimit*9.81);                     // 抓地力上限
+    a-=0.5*1.2*0.31*1.9*v*v/mass + 0.014*9.81;
+    if(a<=0.05) break;
+    v+=a*0.01; t+=0.01;
+    if(v>=27.78) return t;
+  }
+  return null;
+}
+
+const DT_CSS=`<style>
+.dt-h{font-size:14px;margin:var(--s3) 0 6px;color:var(--mut);font-weight:600}
+.dt-list{display:flex;flex-direction:column;gap:6px}
+.dt-opt{border:1px solid var(--line);border-radius:var(--rs);padding:9px 11px;cursor:pointer;background:var(--fill)}
+.dt-opt.on{border-color:var(--tech);box-shadow:inset 0 0 0 1px var(--tech)}
+.dt-head{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.dt-head b{font-size:14px}
+.dt-sub{font-size:12px;color:var(--mut);margin-top:2px}
+.dt-desc{font-size:12px;line-height:1.55;margin-top:5px}
+.dt-desc.mut{color:var(--mut)}
+.dt-chips{display:flex;flex-wrap:wrap;gap:6px}
+.dt-chip{padding:5px 11px;border:1px solid var(--line);border-radius:99px;background:var(--fill);
+  font-size:13px;font-variant-numeric:tabular-nums;cursor:pointer}
+.dt-chip.on{background:var(--tech);border-color:var(--tech);color:#0a120e}
+.dt-chip small{font-size:10px;opacity:.7}
+.dt-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px}
+.dt-table th{font-size:11px;color:var(--mut);font-weight:500;padding:4px 6px;text-align:right;border-bottom:1px solid var(--line)}
+.dt-table th:first-child,.dt-table td:first-child{text-align:center;width:34px}
+.dt-table td{padding:4px 6px;text-align:right;border-bottom:1px solid var(--line)}
+.dt-table td.num{font-variant-numeric:tabular-nums}
+.dt-ratio{width:74px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;
+  background:var(--bg);color:inherit;font-variant-numeric:tabular-nums;text-align:right}
+.dt-sum{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:var(--s2) 0}
+.dt-sum>div{background:var(--fill);border-radius:var(--rs);padding:8px 10px}
+.dt-sum span{display:block;font-size:11px;color:var(--mut)}
+.dt-sum b{font-size:17px;font-variant-numeric:tabular-nums}
+.chip.warn{background:var(--orange,#c47b12);color:#fff}
+</style>`;
+
+function setDrivetrain(key, id){
+  const c=car(); if(!c) return;
+  c.build[key]=id;
+  if(key==='gearbox') c.build.gearRatios=null;   // 換箱就回到那顆箱的原始齒比
+  saveDB(); render();
+}
+function setGearRatio(i, v){
+  const c=car(); if(!c) return;
+  const st=stockDrivetrain(c);
+  const gb=gearboxById(c.build.gearbox||st.gearbox);
+  const cur=(Array.isArray(c.build.gearRatios)&&c.build.gearRatios.length)?c.build.gearRatios.slice():gb.gears.slice();
+  const n=Math.max(.4,Math.min(6,+v||cur[i]));
+  cur[i]=Math.round(n*1000)/1000;
+  c.build.gearRatios=cur; saveDB(); render();
+}
+function resetGearRatios(){
+  const c=car(); if(!c) return;
+  c.build.gearRatios=null; saveDB(); render();
 }
 
 function alignmentPanel(b){
@@ -6430,36 +7755,107 @@ const C3I_CSS=`<style>
 .c3i .lb{font-size:12px;color:var(--mut);flex:0 0 56px}
 .c3i .btn.tgl.on{background:var(--tech);border-color:var(--tech);color:#0a120e}
 .c3i input[type=range]{flex:1;min-width:80px}
-.c3rpm{flex:1;min-width:130px;display:flex;align-items:center;gap:8px}
-.c3rpm .bar{flex:1;height:6px;border-radius:3px;background:var(--fill);overflow:hidden}
-.c3rpm .bar i{display:block;height:100%;width:0;background:var(--tech);transition:width .06s linear}
-.c3rpm b{font-variant-numeric:tabular-nums;min-width:44px;text-align:right;font-size:14px}
+.c3rpm{flex:1;min-width:150px;display:flex;align-items:center;gap:8px}
+.c3rpm .bar{flex:1;height:7px;border-radius:4px;background:var(--fill);overflow:hidden;position:relative}
+.c3rpm .bar i{display:block;height:100%;width:0;background:var(--tech);transition:width .05s linear}
+.c3rpm .bar u{position:absolute;top:0;bottom:0;width:2px;background:var(--red);opacity:.55}
+.c3rpm b{font-variant-numeric:tabular-nums;min-width:46px;text-align:right;font-size:14px}
+.c3gear{display:inline-flex;align-items:baseline;gap:3px;font-variant-numeric:tabular-nums}
+.c3gear b{font-size:20px;min-width:22px;text-align:center}
+.c3gear span{font-size:11px;color:var(--mut)}
+
 .drive-ov{position:absolute;inset:0;z-index:3;pointer-events:none;display:none}
 .stage.driving .drive-ov{display:block}
-.drive-hud{position:absolute;top:10px;left:12px;background:rgba(8,14,12,.55);color:#e7f3ee;
-  padding:3px 10px;border-radius:8px;font-size:12px;backdrop-filter:blur(4px)}
-.drive-hud b{font-size:19px;font-variant-numeric:tabular-nums}
+.drive-hud{position:absolute;top:10px;left:12px;background:rgba(8,14,12,.58);color:#e7f3ee;
+  padding:6px 12px;border-radius:10px;backdrop-filter:blur(5px);line-height:1.25;
+  font-variant-numeric:tabular-nums;min-width:104px}
+.drive-hud .sp{font-size:26px;font-weight:600}
+.drive-hud .sp small{font-size:11px;font-weight:400;opacity:.75;margin-left:3px}
+.drive-hud .gr{font-size:13px;opacity:.9;display:flex;gap:8px;align-items:center}
+.drive-hud .gr em{font-style:normal;color:#7fe3c0;font-weight:600}
+.drive-hud .rv{height:4px;border-radius:2px;background:rgba(255,255,255,.18);margin-top:5px;overflow:hidden}
+.drive-hud .rv i{display:block;height:100%;width:0;background:#7fe3c0}
+.drive-drift{position:absolute;top:10px;right:12px;background:rgba(8,14,12,.58);color:#ffd27f;
+  padding:5px 11px;border-radius:10px;font-size:12px;backdrop-filter:blur(5px);
+  font-variant-numeric:tabular-nums;opacity:0;transition:opacity .18s}
+.drive-drift.on{opacity:1}
+.drive-drift b{font-size:17px}
+
 .joy{position:absolute;left:16px;bottom:14px;width:96px;height:96px;border-radius:50%;
   background:rgba(10,16,14,.35);border:1px solid rgba(255,255,255,.28);pointer-events:auto;touch-action:none}
 .joy i{position:absolute;left:50%;top:50%;width:40px;height:40px;border-radius:50%;
   background:rgba(255,255,255,.78);transform:translate(-50%,-50%);pointer-events:none}
-.pedals{position:absolute;right:14px;bottom:14px;display:flex;gap:10px;pointer-events:auto}
-.pedals button{width:60px;height:60px;border-radius:50%;border:1px solid rgba(255,255,255,.3);
-  background:rgba(10,16,14,.45);color:#fff;font-size:13px;touch-action:none;user-select:none;-webkit-user-select:none}
-.pedals button:active{background:var(--tech);color:#0a120e}
+.pedals{position:absolute;right:14px;bottom:14px;display:flex;gap:9px;align-items:flex-end;pointer-events:auto}
+.pedals button{width:58px;height:58px;border-radius:50%;border:1px solid rgba(255,255,255,.3);
+  background:rgba(10,16,14,.45);color:#fff;font-size:12px;touch-action:none;user-select:none;-webkit-user-select:none}
+.pedals button:active,.pedals button.on{background:var(--tech);color:#0a120e}
+.paddles{position:absolute;right:14px;bottom:82px;display:flex;gap:9px;pointer-events:auto}
+.paddles button{width:44px;height:34px;border-radius:8px;border:1px solid rgba(255,255,255,.3);
+  background:rgba(10,16,14,.45);color:#fff;font-size:15px;user-select:none;-webkit-user-select:none}
+.paddles button:active{background:var(--tech);color:#0a120e}
 </style>`;
+
 function driveOverlay(){
   return `<div class="drive-ov">
-    <div class="drive-hud"><b id="driveSpeed">0</b> km/h</div>
+    <div class="drive-hud">
+      <div class="sp"><span id="driveSpeed">0</span><small>km/h</small></div>
+      <div class="gr"><span>檔位 <em id="driveGear">N</em></span><span id="driveMode">手排</span></div>
+      <div class="rv"><i id="driveRev"></i></div>
+    </div>
+    <div class="drive-drift" id="driveDrift">飄移 <b>0</b>°</div>
     <div class="joy" id="c3Joy"><i id="c3JoyKnob"></i></div>
+    <div class="paddles">
+      <button id="c3Down" type="button" aria-label="降檔" onclick="car3DShift(-1)">−</button>
+      <button id="c3Up" type="button" aria-label="升檔" onclick="car3DShift(1)">＋</button>
+    </div>
     <div class="pedals">
+      <button id="c3PedalH" type="button" aria-label="手煞車">手煞</button>
       <button id="c3PedalB" type="button" aria-label="煞車">煞車</button>
       <button id="c3PedalA" type="button" aria-label="油門">油門</button>
     </div>
   </div>`;
 }
+
+/* HUD 由模擬每 60ms 推一次，不走 render() */
+function updateDriveHUD(S){
+  if(!S) return;
+  const sp=document.getElementById('driveSpeed');
+  if(!sp) return;
+  sp.textContent=Math.round(Math.abs(S.speed));
+  const g=document.getElementById('driveGear');
+  if(g) g.textContent=S.shifting>0?'—':(S.gear===0?'N':S.gear<0?'R':String(S.gear));
+  const md=document.getElementById('driveMode');
+  if(md) md.textContent=S.autoMode?'自排':'手排';
+  const rv=document.getElementById('driveRev');
+  if(rv){
+    const p=Math.min(100,S.rpm/Math.max(1,S.cfg.cv.cut)*100);
+    rv.style.width=p+'%';
+    rv.style.background=p>93?'#ff5a5a':p>80?'#ffb44d':'#7fe3c0';
+  }
+  const df=document.getElementById('driveDrift');
+  if(df){
+    const a=Math.abs(S.drift);
+    df.classList.toggle('on', a>7);
+    if(a>7) df.innerHTML='飄移 <b>'+a.toFixed(0)+'</b>°';
+  }
+  /* 控制列上的轉速表 */
+  const rb=document.getElementById('c3RpmBar');
+  if(rb){
+    const p=Math.min(100,S.rpm/Math.max(1,S.cfg.cv.cut)*100);
+    rb.style.width=p+'%';
+    rb.style.background=p>93?'var(--red)':p>80?'var(--orange)':'var(--tech)';
+  }
+  const rv2=document.getElementById('c3RpmVal'); if(rv2) rv2.textContent=Math.round(S.rpm);
+  const gb=document.getElementById('c3GearVal');
+  if(gb) gb.textContent=S.gear===0?'N':S.gear<0?'R':String(S.gear);
+  const sv=document.getElementById('c3SpeedVal'); if(sv) sv.textContent=Math.round(Math.abs(S.speed));
+}
+
 function c3iBar(b){
   const L=car3DLightState(b);
+  const c=car(), eng=carEngine(c), cv=engineCurve(eng?eng.id:'');
+  const S=CAR3D_DRIVE.sim;
+  const auto=S?S.autoMode:false;
   return `${C3I_CSS}<div class="card c3i">
     <div class="rowline"><span class="lb">燈光</span>
       <div class="seg" id="c3HeadSeg">${[[0,'關'],[1,'小燈'],[2,'近燈'],[3,'遠燈']].map(([v,n])=>
@@ -6468,29 +7864,41 @@ function c3iBar(b){
       <button class="btn sm tgl ${L.turn==='hazard'?'on':''}" id="c3Turn" onclick="c3iTurn()">雙黃警示</button>
       <button class="btn sm tgl ${L.night?'on':''}" id="c3Night" onclick="c3iLight('night')">夜間模式</button>
     </div>
-    <div class="rowline"><span class="lb">引擎聲</span>
-      <button class="btn sm ${C3AUD.running?'':'pri'}" id="c3EngineBtn" onclick="toggleCar3DEngine()">${C3AUD.running?'熄火':'發動引擎'}</button>
+
+    <div class="rowline"><span class="lb">引擎</span>
+      <button class="btn sm ${EngineAudio.running?'':'pri'}" id="c3EngineBtn" onclick="toggleCar3DEngine()">${EngineAudio.running?'熄火':'發動引擎'}</button>
       <button class="btn sm" id="c3Hold" onpointerdown="holdCar3DThrottle(1)" onpointerup="holdCar3DThrottle(0)"
         onpointercancel="holdCar3DThrottle(0)" onpointerleave="holdCar3DThrottle(0)">按住吹油</button>
-      <input type="range" min="0" max="100" value="${Math.round(C3AUD.slider*100)}" aria-label="持續油門"
+      <input type="range" min="0" max="100" value="0" aria-label="持續油門" style="max-width:110px;flex:0 1 110px"
         oninput="setCar3DThrottle(this.value/100)">
-      <div class="c3rpm"><div class="bar"><i id="c3RpmBar"></i></div><b id="c3RpmVal">0</b><span class="mut" style="font-size:11px">rpm</span></div>
+      <div class="c3rpm"><div class="bar"><i id="c3RpmBar"></i><u style="left:${(cv.red/cv.cut*100).toFixed(1)}%"></u></div>
+        <b id="c3RpmVal">0</b><span class="mut" style="font-size:11px">rpm</span></div>
     </div>
+
     <div class="rowline"><span class="lb"></span>
-      <span class="mut" id="c3EngineName" style="font-size:12px"></span>
+      <span class="mut" style="font-size:12px">${esc(eng?eng.name:'引擎')} · ${eng?eng.cyl:4} 缸 · 紅線 ${cv.red} rpm${cv.turbo?' · 渦輪':''}</span>
       <span style="flex:1"></span>
-      <input type="range" min="0" max="100" value="${Math.round(C3AUD.vol*100)}" style="max-width:110px;flex:0 1 110px"
+      <input type="range" min="0" max="100" value="${Math.round(EngineAudio.vol*100)}" style="max-width:100px;flex:0 1 100px"
         aria-label="音量" oninput="setCar3DVolume(this.value/100)">
-      <button class="btn sm" id="c3MuteBtn" onclick="toggleCar3DMute()">${C3AUD.muted?'取消靜音':'靜音'}</button>
+      <button class="btn sm" id="c3MuteBtn" onclick="toggleCar3DMute()">${EngineAudio.muted?'取消靜音':'靜音'}</button>
     </div>
+
     <div class="rowline"><span class="lb">駕駛</span>
       <button class="btn sm tgl ${CAR3D_DRIVE.on?'on':''}" id="c3Drive" onclick="c3iDrive()">駕駛模式</button>
+      <button class="btn sm tgl ${auto?'on':''}" id="c3Auto" onclick="c3iAuto()">${auto?'自排':'手排'}</button>
+      <div class="c3gear"><span>檔</span><b id="c3GearVal">N</b>
+        <span style="margin-left:8px">km/h</span><b id="c3SpeedVal">0</b></div>
+      <button class="btn sm tgl ${(S?S.tc!==false:true)?'on':''}" id="c3TC" onclick="c3iTC()">循跡防滑</button>
       <button class="btn sm tgl ${CAR3D_DRIVE.follow?'on':''}" id="c3Follow" onclick="c3iFollow()">跟隨鏡頭</button>
       <button class="btn sm" onclick="resetCar3DDrive()">回到原點</button>
-      <span class="mut" style="font-size:12px">WASD／方向鍵；手機用畫面左下搖桿與右下踏板</span>
+    </div>
+    <div class="rowline"><span class="lb"></span>
+      <span class="mut" style="font-size:12px">WASD／方向鍵駕駛 · <b>Q</b> 降檔 <b>E</b> 升檔 · <b>空白</b> 手煞車 · <b>左Shift</b> 踩離合。
+      手機用畫面左下搖桿、右下踏板與撥片。想甩尾請關掉循跡防滑。</span>
     </div>
   </div>`;
 }
+
 function c3iLightsMut(fn){
   const c=car();if(!c)return;
   const L=car3DLightState(c.build);fn(L);
@@ -6500,6 +7908,12 @@ function c3iLightsMut(fn){
 function c3iHead(v){c3iLightsMut(L=>L.head=v);}
 function c3iLight(k){c3iLightsMut(L=>L[k]=!L[k]);}
 function c3iTurn(){c3iLightsMut(L=>L.turn=L.turn==='hazard'?'none':'hazard');}
+function engineUIRefresh(){
+  const b=$('#c3EngineBtn');
+  if(b){b.textContent=EngineAudio.running?'熄火':'發動引擎';b.classList.toggle('pri',!EngineAudio.running);}
+  const m=$('#c3MuteBtn');
+  if(m)m.textContent=EngineAudio.muted?'取消靜音':'靜音';
+}
 function c3iLightUI(L){
   const seg=$('#c3HeadSeg');
   if(seg)[...seg.children].forEach((el,i)=>el.classList.toggle('on',i===L.head));
@@ -6543,8 +7957,19 @@ function afterInteract(){
   };
   bindPedal($('#c3PedalA'),'padThrottle');
   bindPedal($('#c3PedalB'),'padBrake');
+  bindPedal($('#c3PedalH'),'padHandbrake');
   if(CAR3D_DRIVE.on)$('#stage')?.classList.add('driving');
-  c3audUI();
+  updateDriveHUD(CAR3D_DRIVE.sim);
+}
+function c3iTC(){
+  const S=ensureSim(); S.tc=(S.tc===false);
+  const el=$('#c3TC'); if(el) el.classList.toggle('on',S.tc!==false);
+  if(typeof toast==='function') toast(S.tc!==false?'循跡防滑：開':'循跡防滑：關 — 油門可以把車尾送出去');
+}
+function c3iAuto(){
+  const on=toggleCar3DAuto();
+  const el=$('#c3Auto');
+  if(el){el.classList.toggle('on',on);el.textContent=on?'自排':'手排';}
 }
 
 /* A/B 拖曳 */

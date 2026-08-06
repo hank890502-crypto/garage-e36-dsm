@@ -23,7 +23,10 @@ const blankCar = () => ({
           drop:0, dropF:0, dropR:0, camberF:-1.0, camberR:-1.5, toeF:0.00, toeR:0.10,
           caster:7.0, trackF:0, trackR:0, pressureF:34, pressureR:36,
           caliper:'stock', tint:0, lip:false, skirt:false, wing:'none',
-          diffuser:false, wide:false, tips:'single', shadow:false, hood:false },
+          diffuser:false, wide:false, tips:'single', shadow:false, hood:false,
+          /* 傳動：null 代表「用這台車的原廠配置」，見 12-data-drivetrain.js 的 stockDrivetrain() */
+          gearbox:null, finalDrive:null, diff:null, clutch:null, flywheel:null, gearRatios:null,
+          lights:{head:0,brake:false,turn:'none',night:false} },
   parts:[], logs:[], fuelLogs:[], plans:[], project:[],
 });
 
