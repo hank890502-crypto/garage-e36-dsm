@@ -146,6 +146,10 @@ function createVehicleSim(build, spec){
     /* 四輪角速度（FL, FR, RL, RR） */
     w:[0,0,0,0], slipR:[0,0,0,0], slipA:[0,0,0,0],
     fxL:[0,0,0,0], fyL:[0,0,0,0], launchT:0,
+    /* 燒胎白煙：每輪的滑動摩擦功率（瓦）、胎面熱累積、輸出的冒煙強度，
+       以及滑動速度在車身座標的分量（給 3D 層決定煙往哪噴） */
+    slipP:[0,0,0,0], tyreHeat:[0,0,0,0], smoke:[0,0,0,0],
+    smokeVX:[0,0,0,0], smokeVY:[0,0,0,0],
     steer:0, brake:0, handbrake:0, tc:true, tcCut:0, escBrake:0, escWheel:0,
     /* 輸出 */
     speed:0, drift:0, wheelSpin:0, gForce:0, lastShift:0,
@@ -535,6 +539,29 @@ function stepVehicleSim(S, dt, input){
     S.fxL[i] += (fx - S.fxL[i])*kRel;
     S.fyL[i] += (fy - S.fyL[i])*kRel;
     fx = S.fxL[i]; fy = S.fyL[i];
+
+    /* ★ 接地面實際耗散掉的摩擦功率 → 燒胎白煙 ★
+       P = |摩擦力 × 滑動速度|。滑動速度就是「胎面相對地面在動多少」：
+       縱向是輪速換算的線速度減掉實際行進速度，橫向就是側滑速度。
+       輪胎冒煙是這份功率把橡膠加熱到裂解冒出油氣，所以用功率當判準，
+       空轉、鎖死煞車、推頭硬滑三種情況自然全都涵蓋，不必各寫一條規則。
+       數量級參考：原地燒胎單顆胎約 50 kW，極限過彎約 12 kW，
+       一般巡航不到 1 kW —— 差距夠大，門檻很好抓。 */
+    const slipVx = S.w[i]*C.tireR - vLong;
+    const slipVy = -vLat;
+    S.slipP[i] = Math.abs(fx*slipVx) + Math.abs(fy*slipVy);
+    /* 橡膠要先被加熱到裂解才冒得出白煙，所以不能只看瞬時功率。
+       用一個簡單的熱累積：功率加熱、時間散熱（時間常數約 0.67 秒）。
+       這樣輕點一下油門不會冒煙、持續燒胎會越冒越濃、放開之後還有餘煙 ——
+       跟真的一樣，而且順便把逐格跳動的雜訊濾掉了。 */
+    const heatIn = Math.max(0, S.slipP[i]-9000)/42000;
+    S.tyreHeat[i] = Math.max(0, Math.min(1.6,
+      S.tyreHeat[i] + heatIn*dt*3.2 - S.tyreHeat[i]*dt*1.5));
+    S.smoke[i] = Math.min(1, S.tyreHeat[i]);
+    /* 滑動速度轉回車身座標，3D 層再依車頭方向轉到世界座標。
+       煙是往「胎面相對地面滑動的反方向」噴出去的。 */
+    S.smokeVX[i] = slipVx*cx - slipVy*sx;
+    S.smokeVY[i] = slipVx*sx + slipVy*cx;
 
     /* 輪子角動量：驅動扭力 − 地面反力矩 − 煞車 */
     let brakeT = S.brake*C.brakeNm*(front?.62:.38);

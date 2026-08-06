@@ -1509,6 +1509,7 @@ function afterCarScenes(){
 function disposeCarScenes(){
   while(CAR3D_INSTANCES.length){
     const x=CAR3D_INSTANCES.pop();x.dead=true;x.observer?.disconnect();x.controls?.dispose();x.renderer.setAnimationLoop(null);
+    x.smoke?.dispose?.(); x.road?.dispose?.();
     x.road?.dispose?.();
     x.scene.traverse(o=>{o.geometry?.dispose?.();if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose?.());}});
     x.renderer.dispose();x.renderer.forceContextLoss();
@@ -1629,6 +1630,7 @@ function applyCar3DNight(x,night){
   if(e.nightGround)e.nightGround.visible=night && !(x.road&&x.road.group.visible);
   const bg=night?0x070b0e:e.defaultBg;
   x.scene.background.setHex(bg);x.scene.fog.color.setHex(bg);
+  if(x.smoke) x.smoke.setNight(night);
   if(x.road){
     x.road.setNight(night);
     /* 有天空球時背景色只影響霧的顏色 */
@@ -1681,15 +1683,31 @@ function car3DInputs(){
 }
 
 /* 模擬狀態是全域單例：多個場景（前後比較）共用同一台車 */
+/* 只要這串變了，模擬狀態裡「建立時就算好」的東西就過期了，必須重建。
+   ★ 胎徑與車輛本身也要算進來 ★
+   cfg.tireR 是用輪圈尺寸與胎寬扁平比算的，cfg.cv（引擎曲線）、cfg.mass、
+   驅動方式則來自車輛本身 —— 這些全都在 createVehicleSim 裡一次算完，
+   之後不會再更新。漏掉任何一項，換了之後駕駛模式都還是用舊的。
+   （輪胎產品不用列：抓地係數是每一步即時查的，本來就會跟著變。）*/
 function simKey(b){
   b=b||{};
+  const c=typeof car==='function'?car():null;
   return [b.gearbox,b.finalDrive,b.diff,b.clutch,b.flywheel,
-          (b.gearRatios||[]).join(','),b.tips].join('|');
+          (b.gearRatios||[]).join(','),b.tips,
+          b.size,b.tireW,b.tireAR,
+          c?c.modelId:'',c?c.bodyId:''].join('|');
 }
 function ensureSim(build){
   if(!CAR3D_DRIVE.sim){
     CAR3D_DRIVE.sim=createVehicleSim(build||{}, null);
     CAR3D_DRIVE.sim._key=simKey(build);
+  }else if(build && CAR3D_DRIVE.sim._key!==simKey(build)){
+    /* ★ 換了變速箱／終傳／差速器之後一定要在這裡重建 ★
+       原本只有 updateCar3DBuild 會比對 _key，但那是拖滑桿的即時路徑；
+       setDrivetrain 走的是「存檔 + 整頁 render()」，完全不經過它。
+       重建後的新場景照樣呼叫 ensureSim，而它只在「還沒有模擬狀態」時建立，
+       於是拿回舊的 sim —— 齒比在設定頁上改好了，開起來卻毫無變化。 */
+    rebuildSim(build);
   }
   return CAR3D_DRIVE.sim;
 }
@@ -1772,6 +1790,27 @@ function applySimToScene(x,S,dt){
   /* 煞車燈：跟著實際煞車 */
   const braking=S.brake>.08||S.handbrake>0;
   if(braking!==!!x._braking){ x._braking=braking; applyCar3DLamps(x); }
+  /* 輪胎白煙：在每顆胎的接地點噴發，強度由物理層算好的滑動摩擦功率決定。
+     接地點直接讀輪圈物件的世界座標 —— 這樣不管左右輪的索引怎麼對應、
+     車身怎麼旋轉，煙一定是從「畫面上那顆正在燒的胎」冒出來的。 */
+  if(x.smoke && x.smoke.group.visible){
+    const sm=S.smoke;
+    if(sm && (sm[0]>0.04||sm[1]>0.04||sm[2]>0.04||sm[3]>0.04)){
+      x.car.updateMatrixWorld(true);
+      const cosH=Math.cos(S.heading), sinH=Math.sin(S.heading);
+      const wp=x._smokeVec||(x._smokeVec=new x.THREE.Vector3());
+      x.wheels.forEach(w=>{
+        const u=w.userData, i=u.front?(u.side<0?0:1):(u.side<0?2:3);
+        if(!(sm[i]>0.04)) return;
+        w.getWorldPosition(wp);
+        /* 滑動速度：車身座標 → 世界座標（車頭朝 −X，與物理層同一組轉換）*/
+        const bx=S.smokeVX?S.smokeVX[i]:0, by=S.smokeVY?S.smokeVY[i]:0;
+        x.smoke.emit(wp.x, 0.05, wp.z,
+          -bx*cosH - by*sinH, bx*sinH - by*cosH, sm[i], dt, i);
+      });
+    }
+    x.smoke.update(dt);
+  }
   /* 場景跟著車走 */
   if(x.road && x.road.group.visible) x.road.update(S.x, S.z);
   const e=x.env;
@@ -1813,6 +1852,11 @@ function setRoadScene(x, on){
     x.road = buildRoadScene(x.THREE, x.scene, night);
     x.scene.add(x.road.group);
   }
+  /* 輪胎白煙：粒子在世界座標，車開走之後煙留在原地慢慢散 */
+  if(on && !x.smoke){
+    x.smoke = buildTyreSmoke(x.THREE, x.scene, !!(x.lightState && x.lightState.night));
+  }
+  if(x.smoke){ x.smoke.group.visible = on; if(!on) x.smoke.clear(); }
   if(x.road) x.road.group.visible = on;
   /* 有道路就不需要網格與那塊只收影子的地板 */
   if(x.env){
@@ -1882,6 +1926,7 @@ function resetCar3DDrive(){
   CAR3D_INSTANCES.forEach(x=>{
     if(x.dead||!x.car) return;
     x.car.position.set(0,0,0);x.car.rotation.y=0;x._lastX=0;x._lastZ=0;
+    x.smoke?.clear?.();
     x.wheels.forEach(w=>{w.rotation.y=0;});
     x.wheels.forEach(w=>{if(w.userData.spin)w.userData.spin.rotation.z=0;});
     if(x.env){

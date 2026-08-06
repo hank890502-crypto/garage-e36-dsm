@@ -3741,6 +3741,10 @@ function createVehicleSim(build, spec){
     /* 四輪角速度（FL, FR, RL, RR） */
     w:[0,0,0,0], slipR:[0,0,0,0], slipA:[0,0,0,0],
     fxL:[0,0,0,0], fyL:[0,0,0,0], launchT:0,
+    /* 燒胎白煙：每輪的滑動摩擦功率（瓦）、胎面熱累積、輸出的冒煙強度，
+       以及滑動速度在車身座標的分量（給 3D 層決定煙往哪噴） */
+    slipP:[0,0,0,0], tyreHeat:[0,0,0,0], smoke:[0,0,0,0],
+    smokeVX:[0,0,0,0], smokeVY:[0,0,0,0],
     steer:0, brake:0, handbrake:0, tc:true, tcCut:0, escBrake:0, escWheel:0,
     /* 輸出 */
     speed:0, drift:0, wheelSpin:0, gForce:0, lastShift:0,
@@ -4130,6 +4134,29 @@ function stepVehicleSim(S, dt, input){
     S.fxL[i] += (fx - S.fxL[i])*kRel;
     S.fyL[i] += (fy - S.fyL[i])*kRel;
     fx = S.fxL[i]; fy = S.fyL[i];
+
+    /* ★ 接地面實際耗散掉的摩擦功率 → 燒胎白煙 ★
+       P = |摩擦力 × 滑動速度|。滑動速度就是「胎面相對地面在動多少」：
+       縱向是輪速換算的線速度減掉實際行進速度，橫向就是側滑速度。
+       輪胎冒煙是這份功率把橡膠加熱到裂解冒出油氣，所以用功率當判準，
+       空轉、鎖死煞車、推頭硬滑三種情況自然全都涵蓋，不必各寫一條規則。
+       數量級參考：原地燒胎單顆胎約 50 kW，極限過彎約 12 kW，
+       一般巡航不到 1 kW —— 差距夠大，門檻很好抓。 */
+    const slipVx = S.w[i]*C.tireR - vLong;
+    const slipVy = -vLat;
+    S.slipP[i] = Math.abs(fx*slipVx) + Math.abs(fy*slipVy);
+    /* 橡膠要先被加熱到裂解才冒得出白煙，所以不能只看瞬時功率。
+       用一個簡單的熱累積：功率加熱、時間散熱（時間常數約 0.67 秒）。
+       這樣輕點一下油門不會冒煙、持續燒胎會越冒越濃、放開之後還有餘煙 ——
+       跟真的一樣，而且順便把逐格跳動的雜訊濾掉了。 */
+    const heatIn = Math.max(0, S.slipP[i]-9000)/42000;
+    S.tyreHeat[i] = Math.max(0, Math.min(1.6,
+      S.tyreHeat[i] + heatIn*dt*3.2 - S.tyreHeat[i]*dt*1.5));
+    S.smoke[i] = Math.min(1, S.tyreHeat[i]);
+    /* 滑動速度轉回車身座標，3D 層再依車頭方向轉到世界座標。
+       煙是往「胎面相對地面滑動的反方向」噴出去的。 */
+    S.smokeVX[i] = slipVx*cx - slipVy*sx;
+    S.smokeVY[i] = slipVx*sx + slipVy*cx;
 
     /* 輪子角動量：驅動扭力 − 地面反力矩 − 煞車 */
     let brakeT = S.brake*C.brakeNm*(front?.62:.38);
@@ -5467,6 +5494,173 @@ function buildRoadScene(THREE, scene, night){
         }
       });
     },
+  };
+}
+
+
+/* ==========================================================================
+   輪胎白煙
+   --------------------------------------------------------------------------
+   物理層（22-sim-vehicle.js）已經算出每顆胎的滑動摩擦功率並累積成
+   S.smoke[i]（0–1）。這一層只負責把它畫出來。
+
+   為什麼用粒子而不是貼一張半透明的煙圖：
+   煙要留在「被燒出來的那個地方」，車開走之後還飄在原地慢慢散掉。
+   貼圖跟著車走就沒有那個味道了。
+
+   效能：固定 300 顆的粒子池，用完就回收最舊的，永遠不配置新記憶體，
+   每格只更新一次 Float32Array 再上傳。粒子的位置是世界座標，
+   所以車開走之後煙會被留在後面 —— 這正是我們要的。
+   ========================================================================== */
+const SMOKE_MAX = 520;
+
+function buildTyreSmoke(THREE, scene, night){
+  const geo = new THREE.BufferGeometry();
+  const pos   = new Float32Array(SMOKE_MAX*3);
+  const aSize = new Float32Array(SMOKE_MAX);
+  const aAlpha= new Float32Array(SMOKE_MAX);
+  const aTint = new Float32Array(SMOKE_MAX);
+  geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  geo.setAttribute('aSize',    new THREE.BufferAttribute(aSize,1));
+  geo.setAttribute('aAlpha',   new THREE.BufferAttribute(aAlpha,1));
+  geo.setAttribute('aTint',    new THREE.BufferAttribute(aTint,1));
+  geo.setDrawRange(0,0);
+  /* 邊界球給死的：粒子在世界座標到處跑，讓 three.js 每格重算會很浪費，
+     而且空池時算出來是 NaN 會整批被視錐剔除掉。 */
+  geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0,0,0), 1e5);
+
+  const mat = new THREE.ShaderMaterial({
+    transparent:true, depthWrite:false, depthTest:true,
+    blending:THREE.NormalBlending,
+    uniforms:{ uNight:{value:night?1:0} },
+    vertexShader:`
+      attribute float aSize; attribute float aAlpha; attribute float aTint;
+      varying float vAlpha; varying float vTint;
+      void main(){
+        vAlpha=aAlpha; vTint=aTint;
+        vec4 mv = modelViewMatrix * vec4(position,1.0);
+        /* 近大遠小：除以觀察空間的深度 */
+        gl_PointSize = aSize * 320.0 / max(1.0, -mv.z);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader:`
+      uniform float uNight;
+      varying float vAlpha; varying float vTint;
+      void main(){
+        /* 圓形柔邊：中心實、邊緣散開，才像煙而不像一顆球 */
+        vec2 d = gl_PointCoord - vec2(0.5);
+        float r = length(d);
+        if(r>0.5) discard;
+        float a = smoothstep(0.5, 0.06, r);
+        a *= a;                                   // 邊緣再軟一點
+        /* 剛燒出來的煙偏白偏藍（橡膠油氣），飄久了混進灰塵轉暖灰 */
+        vec3 fresh = vec3(0.93,0.94,0.97);
+        vec3 aged  = vec3(0.62,0.60,0.56);
+        vec3 c = mix(aged, fresh, vTint);
+        c *= mix(1.0, 0.45, uNight);              // 夜間沒有日光照亮煙
+        gl_FragColor = vec4(c, a*vAlpha);
+      }`,
+  });
+
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  points.renderOrder = 12;
+  const grp = new THREE.Group();
+  grp.add(points);
+  scene.add(grp);
+
+  /* 粒子狀態（純 JS 陣列，不進 GPU）*/
+  const vx=new Float32Array(SMOKE_MAX), vy=new Float32Array(SMOKE_MAX), vz=new Float32Array(SMOKE_MAX);
+  const life=new Float32Array(SMOKE_MAX), maxLife=new Float32Array(SMOKE_MAX);
+  const seed=new Float32Array(SMOKE_MAX), born=new Float32Array(SMOKE_MAX);
+  let head=0, live=0, clock=0, pending=[0,0,0,0];
+
+  /* 亂數：不用 Math.random()，用一個自帶種子的 LCG，
+     這樣測試跑兩次結果一樣，出問題才查得下去。 */
+  let rndState=0x2f6e2b1;
+  const rnd=()=>{ rndState=(rndState*1664525+1013904223)&0x7fffffff; return rndState/0x7fffffff; };
+
+  function spawn(x,y,z, dirX,dirZ, strength){
+    const i = head; head=(head+1)%SMOKE_MAX;
+    if(life[i]<=0) live++;
+    /* 噴發方向 = 胎面相對地面滑動的反方向，再加一點亂數擴散。
+       強度越大噴得越遠 —— 大馬力燒胎的煙是「射」出去的不是「冒」出來的。 */
+    const spread=0.75+strength*0.95;
+    vx[i] = -dirX*(0.16+strength*0.20) + (rnd()-0.5)*spread;
+    vz[i] = -dirZ*(0.16+strength*0.20) + (rnd()-0.5)*spread;
+    vy[i] = 0.45 + rnd()*0.95 + strength*0.70;
+    pos[i*3]   = x + (rnd()-0.5)*0.22;
+    pos[i*3+1] = y + rnd()*0.10;
+    pos[i*3+2] = z + (rnd()-0.5)*0.22;
+    maxLife[i] = 1.5 + rnd()*1.3 + strength*0.5;
+    life[i]    = maxLife[i];
+    seed[i]    = 0.6 + rnd()*0.9;
+    born[i]    = clock;
+    aTint[i]   = 1;
+  }
+
+  return {
+    group:grp,
+    /* 每顆輪子每格呼叫一次。intensity 是 S.smoke[i]，dirX/dirZ 是
+       滑動速度的世界座標分量（不必正規化，這裡自己處理）。 */
+    emit(x,y,z, dirX,dirZ, intensity, dt, wheel){
+      wheel|=0;
+      if(!(intensity>0.04)) { pending[wheel]=0; return; }
+      const len = Math.hypot(dirX,dirZ)||1;
+      const nx=dirX/len, nz=dirZ/len;
+      /* 發射率隨強度上升得比線性快一點：剛破胎時只是幾縷，
+         真的在燒才會整片白。每輪每秒最多 44 顆，四輪同時鎖死也剛好不爆池
+         （52 × 4 × 2.5 秒壽命 ≈ 520，剛好等於池子大小）。 */
+      const rate = Math.pow(intensity,1.35)*52;
+      pending[wheel]+=rate*dt;
+      let n=Math.floor(pending[wheel]);
+      if(n>6) n=6;                       // 單格暴衝保護（掉格時不要一次噴光）
+      pending[wheel]-=n;
+      for(let k=0;k<n;k++) spawn(x,y,z,nx,nz,Math.min(1,intensity));
+    },
+    update(dt){
+      if(!live) { geo.setDrawRange(0,0); return; }
+      clock+=dt;
+      let maxIdx=-1;
+      for(let i=0;i<SMOKE_MAX;i++){
+        if(life[i]<=0){ aAlpha[i]=0; continue; }
+        life[i]-=dt;
+        if(life[i]<=0){ life[i]=0; aAlpha[i]=0; live--; continue; }
+        const age=1-life[i]/maxLife[i];               // 0 剛生成 → 1 快消失
+        /* 空氣阻力：煙很輕，速度掉得快 */
+        const drag=Math.exp(-dt*1.9);
+        vx[i]*=drag; vz[i]*=drag;
+        /* 浮力減弱＋一點側向亂流，讓煙柱不會筆直上升 */
+        vy[i] = vy[i]*Math.exp(-dt*1.1) + dt*0.30;
+        const t=clock*1.7+seed[i]*9.0;
+        pos[i*3]   += (vx[i] + Math.sin(t)*0.16*age)*dt;
+        pos[i*3+1] += vy[i]*dt;
+        pos[i*3+2] += (vz[i] + Math.cos(t*0.9)*0.16*age)*dt;
+        if(pos[i*3+1]<0.02) pos[i*3+1]=0.02;          // 不要穿到地板下
+        /* 體積隨時間膨脹（煙會擴散），透明度先快速浮現再慢慢淡掉 */
+        aSize[i]  = (0.30 + age*2.1)*seed[i];
+        /* 透明度：一生成就要看得見（age*8 很快到 1），之後慢慢淡。
+           收尾用 1.5 次方而不是平方 —— 平方掉得太快，煙會像被擦掉一樣
+           突然消失，實際上煙是越飄越薄、拖很久才不見。 */
+        aAlpha[i] = Math.min(1, age*8.0) * Math.pow(1-age, 1.5) * 0.82;
+        aTint[i]  = Math.max(0, 1-age*1.6);
+        if(i>maxIdx) maxIdx=i;
+      }
+      geo.setDrawRange(0, SMOKE_MAX);
+      geo.attributes.position.needsUpdate=true;
+      geo.attributes.aSize.needsUpdate=true;
+      geo.attributes.aAlpha.needsUpdate=true;
+      geo.attributes.aTint.needsUpdate=true;
+    },
+    clear(){
+      for(let i=0;i<SMOKE_MAX;i++){ life[i]=0; aAlpha[i]=0; }
+      live=0; head=0; pending=[0,0,0,0];
+      geo.attributes.aAlpha.needsUpdate=true;
+      geo.setDrawRange(0,0);
+    },
+    setNight(n){ mat.uniforms.uNight.value = n?1:0; },
+    get liveCount(){ return live; },
+    dispose(){ geo.dispose(); mat.dispose(); },
   };
 }
 
@@ -7285,6 +7479,7 @@ function afterCarScenes(){
 function disposeCarScenes(){
   while(CAR3D_INSTANCES.length){
     const x=CAR3D_INSTANCES.pop();x.dead=true;x.observer?.disconnect();x.controls?.dispose();x.renderer.setAnimationLoop(null);
+    x.smoke?.dispose?.(); x.road?.dispose?.();
     x.road?.dispose?.();
     x.scene.traverse(o=>{o.geometry?.dispose?.();if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose?.());}});
     x.renderer.dispose();x.renderer.forceContextLoss();
@@ -7405,6 +7600,7 @@ function applyCar3DNight(x,night){
   if(e.nightGround)e.nightGround.visible=night && !(x.road&&x.road.group.visible);
   const bg=night?0x070b0e:e.defaultBg;
   x.scene.background.setHex(bg);x.scene.fog.color.setHex(bg);
+  if(x.smoke) x.smoke.setNight(night);
   if(x.road){
     x.road.setNight(night);
     /* 有天空球時背景色只影響霧的顏色 */
@@ -7457,15 +7653,31 @@ function car3DInputs(){
 }
 
 /* 模擬狀態是全域單例：多個場景（前後比較）共用同一台車 */
+/* 只要這串變了，模擬狀態裡「建立時就算好」的東西就過期了，必須重建。
+   ★ 胎徑與車輛本身也要算進來 ★
+   cfg.tireR 是用輪圈尺寸與胎寬扁平比算的，cfg.cv（引擎曲線）、cfg.mass、
+   驅動方式則來自車輛本身 —— 這些全都在 createVehicleSim 裡一次算完，
+   之後不會再更新。漏掉任何一項，換了之後駕駛模式都還是用舊的。
+   （輪胎產品不用列：抓地係數是每一步即時查的，本來就會跟著變。）*/
 function simKey(b){
   b=b||{};
+  const c=typeof car==='function'?car():null;
   return [b.gearbox,b.finalDrive,b.diff,b.clutch,b.flywheel,
-          (b.gearRatios||[]).join(','),b.tips].join('|');
+          (b.gearRatios||[]).join(','),b.tips,
+          b.size,b.tireW,b.tireAR,
+          c?c.modelId:'',c?c.bodyId:''].join('|');
 }
 function ensureSim(build){
   if(!CAR3D_DRIVE.sim){
     CAR3D_DRIVE.sim=createVehicleSim(build||{}, null);
     CAR3D_DRIVE.sim._key=simKey(build);
+  }else if(build && CAR3D_DRIVE.sim._key!==simKey(build)){
+    /* ★ 換了變速箱／終傳／差速器之後一定要在這裡重建 ★
+       原本只有 updateCar3DBuild 會比對 _key，但那是拖滑桿的即時路徑；
+       setDrivetrain 走的是「存檔 + 整頁 render()」，完全不經過它。
+       重建後的新場景照樣呼叫 ensureSim，而它只在「還沒有模擬狀態」時建立，
+       於是拿回舊的 sim —— 齒比在設定頁上改好了，開起來卻毫無變化。 */
+    rebuildSim(build);
   }
   return CAR3D_DRIVE.sim;
 }
@@ -7548,6 +7760,27 @@ function applySimToScene(x,S,dt){
   /* 煞車燈：跟著實際煞車 */
   const braking=S.brake>.08||S.handbrake>0;
   if(braking!==!!x._braking){ x._braking=braking; applyCar3DLamps(x); }
+  /* 輪胎白煙：在每顆胎的接地點噴發，強度由物理層算好的滑動摩擦功率決定。
+     接地點直接讀輪圈物件的世界座標 —— 這樣不管左右輪的索引怎麼對應、
+     車身怎麼旋轉，煙一定是從「畫面上那顆正在燒的胎」冒出來的。 */
+  if(x.smoke && x.smoke.group.visible){
+    const sm=S.smoke;
+    if(sm && (sm[0]>0.04||sm[1]>0.04||sm[2]>0.04||sm[3]>0.04)){
+      x.car.updateMatrixWorld(true);
+      const cosH=Math.cos(S.heading), sinH=Math.sin(S.heading);
+      const wp=x._smokeVec||(x._smokeVec=new x.THREE.Vector3());
+      x.wheels.forEach(w=>{
+        const u=w.userData, i=u.front?(u.side<0?0:1):(u.side<0?2:3);
+        if(!(sm[i]>0.04)) return;
+        w.getWorldPosition(wp);
+        /* 滑動速度：車身座標 → 世界座標（車頭朝 −X，與物理層同一組轉換）*/
+        const bx=S.smokeVX?S.smokeVX[i]:0, by=S.smokeVY?S.smokeVY[i]:0;
+        x.smoke.emit(wp.x, 0.05, wp.z,
+          -bx*cosH - by*sinH, bx*sinH - by*cosH, sm[i], dt, i);
+      });
+    }
+    x.smoke.update(dt);
+  }
   /* 場景跟著車走 */
   if(x.road && x.road.group.visible) x.road.update(S.x, S.z);
   const e=x.env;
@@ -7589,6 +7822,11 @@ function setRoadScene(x, on){
     x.road = buildRoadScene(x.THREE, x.scene, night);
     x.scene.add(x.road.group);
   }
+  /* 輪胎白煙：粒子在世界座標，車開走之後煙留在原地慢慢散 */
+  if(on && !x.smoke){
+    x.smoke = buildTyreSmoke(x.THREE, x.scene, !!(x.lightState && x.lightState.night));
+  }
+  if(x.smoke){ x.smoke.group.visible = on; if(!on) x.smoke.clear(); }
   if(x.road) x.road.group.visible = on;
   /* 有道路就不需要網格與那塊只收影子的地板 */
   if(x.env){
@@ -7658,6 +7896,7 @@ function resetCar3DDrive(){
   CAR3D_INSTANCES.forEach(x=>{
     if(x.dead||!x.car) return;
     x.car.position.set(0,0,0);x.car.rotation.y=0;x._lastX=0;x._lastZ=0;
+    x.smoke?.clear?.();
     x.wheels.forEach(w=>{w.rotation.y=0;});
     x.wheels.forEach(w=>{if(w.userData.spin)w.userData.spin.rotation.z=0;});
     if(x.env){

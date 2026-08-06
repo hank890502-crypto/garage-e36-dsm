@@ -538,3 +538,170 @@ function buildRoadScene(THREE, scene, night){
     },
   };
 }
+
+
+/* ==========================================================================
+   輪胎白煙
+   --------------------------------------------------------------------------
+   物理層（22-sim-vehicle.js）已經算出每顆胎的滑動摩擦功率並累積成
+   S.smoke[i]（0–1）。這一層只負責把它畫出來。
+
+   為什麼用粒子而不是貼一張半透明的煙圖：
+   煙要留在「被燒出來的那個地方」，車開走之後還飄在原地慢慢散掉。
+   貼圖跟著車走就沒有那個味道了。
+
+   效能：固定 300 顆的粒子池，用完就回收最舊的，永遠不配置新記憶體，
+   每格只更新一次 Float32Array 再上傳。粒子的位置是世界座標，
+   所以車開走之後煙會被留在後面 —— 這正是我們要的。
+   ========================================================================== */
+const SMOKE_MAX = 520;
+
+function buildTyreSmoke(THREE, scene, night){
+  const geo = new THREE.BufferGeometry();
+  const pos   = new Float32Array(SMOKE_MAX*3);
+  const aSize = new Float32Array(SMOKE_MAX);
+  const aAlpha= new Float32Array(SMOKE_MAX);
+  const aTint = new Float32Array(SMOKE_MAX);
+  geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  geo.setAttribute('aSize',    new THREE.BufferAttribute(aSize,1));
+  geo.setAttribute('aAlpha',   new THREE.BufferAttribute(aAlpha,1));
+  geo.setAttribute('aTint',    new THREE.BufferAttribute(aTint,1));
+  geo.setDrawRange(0,0);
+  /* 邊界球給死的：粒子在世界座標到處跑，讓 three.js 每格重算會很浪費，
+     而且空池時算出來是 NaN 會整批被視錐剔除掉。 */
+  geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0,0,0), 1e5);
+
+  const mat = new THREE.ShaderMaterial({
+    transparent:true, depthWrite:false, depthTest:true,
+    blending:THREE.NormalBlending,
+    uniforms:{ uNight:{value:night?1:0} },
+    vertexShader:`
+      attribute float aSize; attribute float aAlpha; attribute float aTint;
+      varying float vAlpha; varying float vTint;
+      void main(){
+        vAlpha=aAlpha; vTint=aTint;
+        vec4 mv = modelViewMatrix * vec4(position,1.0);
+        /* 近大遠小：除以觀察空間的深度 */
+        gl_PointSize = aSize * 320.0 / max(1.0, -mv.z);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader:`
+      uniform float uNight;
+      varying float vAlpha; varying float vTint;
+      void main(){
+        /* 圓形柔邊：中心實、邊緣散開，才像煙而不像一顆球 */
+        vec2 d = gl_PointCoord - vec2(0.5);
+        float r = length(d);
+        if(r>0.5) discard;
+        float a = smoothstep(0.5, 0.06, r);
+        a *= a;                                   // 邊緣再軟一點
+        /* 剛燒出來的煙偏白偏藍（橡膠油氣），飄久了混進灰塵轉暖灰 */
+        vec3 fresh = vec3(0.93,0.94,0.97);
+        vec3 aged  = vec3(0.62,0.60,0.56);
+        vec3 c = mix(aged, fresh, vTint);
+        c *= mix(1.0, 0.45, uNight);              // 夜間沒有日光照亮煙
+        gl_FragColor = vec4(c, a*vAlpha);
+      }`,
+  });
+
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  points.renderOrder = 12;
+  const grp = new THREE.Group();
+  grp.add(points);
+  scene.add(grp);
+
+  /* 粒子狀態（純 JS 陣列，不進 GPU）*/
+  const vx=new Float32Array(SMOKE_MAX), vy=new Float32Array(SMOKE_MAX), vz=new Float32Array(SMOKE_MAX);
+  const life=new Float32Array(SMOKE_MAX), maxLife=new Float32Array(SMOKE_MAX);
+  const seed=new Float32Array(SMOKE_MAX), born=new Float32Array(SMOKE_MAX);
+  let head=0, live=0, clock=0, pending=[0,0,0,0];
+
+  /* 亂數：不用 Math.random()，用一個自帶種子的 LCG，
+     這樣測試跑兩次結果一樣，出問題才查得下去。 */
+  let rndState=0x2f6e2b1;
+  const rnd=()=>{ rndState=(rndState*1664525+1013904223)&0x7fffffff; return rndState/0x7fffffff; };
+
+  function spawn(x,y,z, dirX,dirZ, strength){
+    const i = head; head=(head+1)%SMOKE_MAX;
+    if(life[i]<=0) live++;
+    /* 噴發方向 = 胎面相對地面滑動的反方向，再加一點亂數擴散。
+       強度越大噴得越遠 —— 大馬力燒胎的煙是「射」出去的不是「冒」出來的。 */
+    const spread=0.75+strength*0.95;
+    vx[i] = -dirX*(0.16+strength*0.20) + (rnd()-0.5)*spread;
+    vz[i] = -dirZ*(0.16+strength*0.20) + (rnd()-0.5)*spread;
+    vy[i] = 0.45 + rnd()*0.95 + strength*0.70;
+    pos[i*3]   = x + (rnd()-0.5)*0.22;
+    pos[i*3+1] = y + rnd()*0.10;
+    pos[i*3+2] = z + (rnd()-0.5)*0.22;
+    maxLife[i] = 1.5 + rnd()*1.3 + strength*0.5;
+    life[i]    = maxLife[i];
+    seed[i]    = 0.6 + rnd()*0.9;
+    born[i]    = clock;
+    aTint[i]   = 1;
+  }
+
+  return {
+    group:grp,
+    /* 每顆輪子每格呼叫一次。intensity 是 S.smoke[i]，dirX/dirZ 是
+       滑動速度的世界座標分量（不必正規化，這裡自己處理）。 */
+    emit(x,y,z, dirX,dirZ, intensity, dt, wheel){
+      wheel|=0;
+      if(!(intensity>0.04)) { pending[wheel]=0; return; }
+      const len = Math.hypot(dirX,dirZ)||1;
+      const nx=dirX/len, nz=dirZ/len;
+      /* 發射率隨強度上升得比線性快一點：剛破胎時只是幾縷，
+         真的在燒才會整片白。每輪每秒最多 44 顆，四輪同時鎖死也剛好不爆池
+         （52 × 4 × 2.5 秒壽命 ≈ 520，剛好等於池子大小）。 */
+      const rate = Math.pow(intensity,1.35)*52;
+      pending[wheel]+=rate*dt;
+      let n=Math.floor(pending[wheel]);
+      if(n>6) n=6;                       // 單格暴衝保護（掉格時不要一次噴光）
+      pending[wheel]-=n;
+      for(let k=0;k<n;k++) spawn(x,y,z,nx,nz,Math.min(1,intensity));
+    },
+    update(dt){
+      if(!live) { geo.setDrawRange(0,0); return; }
+      clock+=dt;
+      let maxIdx=-1;
+      for(let i=0;i<SMOKE_MAX;i++){
+        if(life[i]<=0){ aAlpha[i]=0; continue; }
+        life[i]-=dt;
+        if(life[i]<=0){ life[i]=0; aAlpha[i]=0; live--; continue; }
+        const age=1-life[i]/maxLife[i];               // 0 剛生成 → 1 快消失
+        /* 空氣阻力：煙很輕，速度掉得快 */
+        const drag=Math.exp(-dt*1.9);
+        vx[i]*=drag; vz[i]*=drag;
+        /* 浮力減弱＋一點側向亂流，讓煙柱不會筆直上升 */
+        vy[i] = vy[i]*Math.exp(-dt*1.1) + dt*0.30;
+        const t=clock*1.7+seed[i]*9.0;
+        pos[i*3]   += (vx[i] + Math.sin(t)*0.16*age)*dt;
+        pos[i*3+1] += vy[i]*dt;
+        pos[i*3+2] += (vz[i] + Math.cos(t*0.9)*0.16*age)*dt;
+        if(pos[i*3+1]<0.02) pos[i*3+1]=0.02;          // 不要穿到地板下
+        /* 體積隨時間膨脹（煙會擴散），透明度先快速浮現再慢慢淡掉 */
+        aSize[i]  = (0.30 + age*2.1)*seed[i];
+        /* 透明度：一生成就要看得見（age*8 很快到 1），之後慢慢淡。
+           收尾用 1.5 次方而不是平方 —— 平方掉得太快，煙會像被擦掉一樣
+           突然消失，實際上煙是越飄越薄、拖很久才不見。 */
+        aAlpha[i] = Math.min(1, age*8.0) * Math.pow(1-age, 1.5) * 0.82;
+        aTint[i]  = Math.max(0, 1-age*1.6);
+        if(i>maxIdx) maxIdx=i;
+      }
+      geo.setDrawRange(0, SMOKE_MAX);
+      geo.attributes.position.needsUpdate=true;
+      geo.attributes.aSize.needsUpdate=true;
+      geo.attributes.aAlpha.needsUpdate=true;
+      geo.attributes.aTint.needsUpdate=true;
+    },
+    clear(){
+      for(let i=0;i<SMOKE_MAX;i++){ life[i]=0; aAlpha[i]=0; }
+      live=0; head=0; pending=[0,0,0,0];
+      geo.attributes.aAlpha.needsUpdate=true;
+      geo.setDrawRange(0,0);
+    },
+    setNight(n){ mat.uniforms.uNight.value = n?1:0; },
+    get liveCount(){ return live; },
+    dispose(){ geo.dispose(); mat.dispose(); },
+  };
+}
