@@ -4262,8 +4262,11 @@ function addTireDetails(THREE,parent,spec){
 function makeWheel(THREE, build, spec, side, front){
   const g=new THREE.Group(), preset=wheelPreset(build.wheel);
   const hub=CAR3D_HUB[build.platform==='dsm2g'?'dsm2g':'e36'];
-  mesh(THREE,g,tireProfileGeometry(THREE,spec),mat(THREE,0x111312,{roughness:.88,metalness:0}));
-  addTireDetails(THREE,g,spec);
+  /* spin 子群組只放「會跟著車輪自轉」的件（胎、輪輞、輪輻面、輪唇）。
+     懸吊與卡鉗留在外層 —— 駕駛模式的自轉只轉 spin，彈簧不會跟著打轉。 */
+  const spin=new THREE.Group();g.add(spin);g.userData.spin=spin;
+  mesh(THREE,spin,tireProfileGeometry(THREE,spec),mat(THREE,0x111312,{roughness:.88,metalness:0}));
+  addTireDetails(THREE,spin,spec);
 
   const fin=WHEEL_FINISHES.find(x=>x.id===build.finish)||WHEEL_FINISHES[0];
   const rimMat=new THREE.MeshStandardMaterial({color:fin.face,
@@ -4275,18 +4278,18 @@ function makeWheel(THREE, build, spec, side, front){
 
   // 輪輞：寬度 = 真實 J 寬，不再是胎寬 × 0.70
   const barrelMat=rimMat.clone();barrelMat.color.offsetHSL(0,0,-.10);barrelMat.side=THREE.DoubleSide;
-  mesh(THREE,g,new THREE.CylinderGeometry(spec.rimR*.945,spec.rimR*.945,spec.rimW*.96,64,1,true),
+  mesh(THREE,spin,new THREE.CylinderGeometry(spec.rimR*.945,spec.rimR*.945,spec.rimW*.96,64,1,true),
        barrelMat,[0,0,0],[Math.PI/2,0,0]);
 
-  g.add(wheelFaceGroup(THREE,preset,spec,hub,rimMat,lipMat,
+  spin.add(wheelFaceGroup(THREE,preset,spec,hub,rimMat,lipMat,
         CAR3D_WHEEL_FACE_READY.get(build.wheel)||null, side));
 
   // 內外輪唇
   const lipW=spec.rimR*(preset.lipScale||.042);
   const outer=new THREE.Mesh(new THREE.TorusGeometry(spec.rimR*.97,lipW,10,64),preset.cast?rimMat:lipMat);
-  outer.position.z=side*spec.rimW/2; g.add(outer);
+  outer.position.z=side*spec.rimW/2; spin.add(outer);
   const inner=new THREE.Mesh(new THREE.TorusGeometry(spec.rimR*.97,lipW*.72,8,48),rimMat);
-  inner.position.z=-side*spec.rimW/2; g.add(inner);
+  inner.position.z=-side*spec.rimW/2; spin.add(inner);
   return g;
 }
 
@@ -4331,6 +4334,8 @@ function addLightingParts(THREE, body, spec){
   const tail=mat(THREE,0xb41420,{metalness:.1,roughness:.18,emissive:0x6c0610,emissiveIntensity:.42});
   const turn=mat(THREE,0xe88721,{emissive:0x7b3504,emissiveIntensity:.25});
   const dark=mat(THREE,0x111615,{metalness:.58,roughness:.30});
+  /* 命名讓程序化燈具也能被燈光開關（car3DLampRoles）認出來 */
+  head.name='car3d-head';tail.name='car3d-tail';turn.name='car3d-turn';
   if(spec.eclipse){
     [-1,1].forEach(side=>{
       const z=side*spec.width*.29;
@@ -4911,9 +4916,9 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
   renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.08;
   renderer.domElement.setAttribute('aria-hidden','true');root.prepend(renderer.domElement);
 
-  scene.add(new THREE.HemisphereLight(dark?0xb7d6dd:0xe8f3ef,dark?0x172018:0x6d756d,2.2));
+  const hemi=new THREE.HemisphereLight(dark?0xb7d6dd:0xe8f3ef,dark?0x172018:0x6d756d,2.2);scene.add(hemi);
   const key=new THREE.DirectionalLight(0xffffff,4.0);key.position.set(-4.5,7,5);key.castShadow=true;
-  key.shadow.mapSize.set(1024,1024);key.shadow.camera.left=-6;key.shadow.camera.right=6;key.shadow.camera.top=5;key.shadow.camera.bottom=-2;scene.add(key);
+  key.shadow.mapSize.set(1024,1024);key.shadow.camera.left=-6;key.shadow.camera.right=6;key.shadow.camera.top=5;key.shadow.camera.bottom=-2;scene.add(key);scene.add(key.target);
   const rim=new THREE.DirectionalLight(dark?0x58dcea:0x8ecad5,2.0);rim.position.set(5,3,-5);scene.add(rim);
   const warm=new THREE.DirectionalLight(0xffb466,.7);warm.position.set(2,1.6,4);scene.add(warm);
 
@@ -4947,8 +4952,22 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
     controls.minPolarAngle=.72;controls.maxPolarAngle=1.48;
   }
 
-  const instance={root,scene,camera,renderer,controls,spec,car,THREE,dead:false,observer:null};CAR3D_INSTANCES.push(instance);
+  const instance={root,scene,camera,renderer,controls,spec,car,THREE,dead:false,observer:null,
+    env:{hemi,key,rim,warm,grid,floor,gridStep:.5,defaultBg:scene.background.getHex()},
+    build:renderBuild,lamps:collectCar3DLamps(car),wheels:[],beams:null,loop:!!controls,
+    lightState:car3DLightState(renderBuild),drive:null};
+  CAR3D_INSTANCES.push(instance);
+  car.traverse(o=>{if(o.userData.carWheel)instance.wheels.push(o);});
+  if(CAR3D_DRIVE.on)restoreCar3DDrive(instance);
+  instance.nightApplied=instance.lightState.night;
+  if(instance.lightState.night)applyCar3DNight(instance,true);
+  applyCar3DLamps(instance);
   applyCar3DView(instance,initialView);
+  /* render() 重建場景後，若車不在原點，把視角平移過去，不然鏡頭會盯著空地 */
+  if(instance.drive&&(instance.drive.x||instance.drive.z)){
+    camera.position.x+=instance.drive.x;camera.position.z+=instance.drive.z;
+    if(controls){controls.target.x+=instance.drive.x;controls.target.z+=instance.drive.z;}
+  }
   if(controls){
     controls.addEventListener('change',()=>syncCar3DView(instance));controls.update();
   }
@@ -4959,7 +4978,18 @@ async function createScene(root, config, THREE, OrbitControls, GLTFLoader, Mesho
   };
   instance.observer=new ResizeObserver(resize);instance.observer.observe(root);resize();
   if(controls){
-    renderer.setAnimationLoop(()=>{if(instance.dead)return;controls.update();renderer.render(scene,camera);});
+    controls.enabled=!(CAR3D_DRIVE.on&&CAR3D_DRIVE.follow);
+    let lastT=0;
+    renderer.setAnimationLoop(t=>{
+      if(instance.dead)return;
+      const dt=Math.min(.1,Math.max(.001,lastT?(t-lastT)/1000:.016));lastT=t;
+      if(CAR3D_DRIVE.on&&instance.car){
+        stepCar3DDrive(instance,dt);
+        if(CAR3D_DRIVE.follow)car3DFollowCam(instance,dt);
+      }
+      if(controls.enabled)controls.update();
+      renderer.render(scene,camera);
+    });
   }else renderer.render(scene,camera);
   root.classList.add('ready');
   return instance;
@@ -4992,6 +5022,7 @@ function resetCar3D(event){
 function updateCar3DBuild(build){
   CAR3D_READY.then(({THREE})=>CAR3D_INSTANCES.forEach(x=>{
     if(x.dead||!x.car)return;
+    x.build=build;
     const stance=bodyStance(x.spec,build);
     x.car.traverse(o=>{
       if(o.userData.vehicleBody){
@@ -5048,6 +5079,458 @@ function wheelThumb(styleId, finishId){
     <circle cx="50" cy="50" r="9" fill="${fin.face}"/><circle cx="50" cy="50" r="3" fill="#161a19"/>
   </svg>`;
 }
+
+/* ==========================================================================
+   互動預覽 · 模組一：燈光開關
+   --------------------------------------------------------------------------
+   狀態放 build.lights（跟著車輛存進 DB）：
+     {head:0|1|2|3, brake:bool, turn:'none'|'hazard', night:bool}
+     head：0=關 / 1=小燈 / 2=近燈 / 3=遠燈
+   材質辨識靠名稱（三套車體命名各不相同，尾碼 .0xx 先剝掉再比對）。
+   E36 的 orangeglass 與 M3 的 SideLamp_lens 是獨立方向燈材質；
+   Eclipse 的方向燈併在 Headlight_Bucket 裡，所以閃爍時整個燈碗一起呼吸 ——
+   這是來源網格材質切分的極限，不再硬切幾何（會重蹈破面覆轍）。
+   左右分開閃做不到（同一顆材質蓋左右兩邊），所以方向燈做成雙黃警示燈。
+   ========================================================================== */
+function car3DLightState(build){
+  const l=(build&&build.lights)||{};
+  return {head:Math.max(0,Math.min(3,+l.head||0)), brake:!!l.brake,
+          turn:l.turn==='hazard'?'hazard':'none', night:!!l.night};
+}
+/* 一顆材質可以身兼多職（Eclipse 燈碗＝大燈＋方向燈） */
+function car3DLampRoles(rawName){
+  const n=String(rawName||'').toLowerCase().replace(/\.\d+$/,'');
+  if(/^clearglass/.test(n)||n==='car3d-head'||n==='headlamp_lens'||n==='headlight_inner') return {head:1};
+  if(n==='headlight_bucket') return {head:1,turn:1};
+  if(/^orangeglass/.test(n)||n==='sidelamp_lens'||n==='car3d-turn') return {turn:1};
+  if(/^redglass/.test(n)||n==='taillight_red'||n==='rearlamp_lens'||n==='car3d-tail') return {tail:1};
+  return null;
+}
+function collectCar3DLamps(model){
+  const found=[],seen=new Set();
+  model.traverse(o=>{
+    if(!o.isMesh||!o.material) return;
+    (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{
+      if(!m||seen.has(m)||!m.emissive) return;
+      const roles=car3DLampRoles(m.name); if(!roles) return;
+      seen.add(m);
+      found.push({m,roles,base:{hex:m.emissive.getHex(),i:m.emissiveIntensity??1}});
+    });
+  });
+  return found;
+}
+let CAR3D_TURN_PHASE=true;
+function renderCar3DOnce(x){ if(!x.dead) x.renderer.render(x.scene,x.camera); }
+function applyCar3DLamps(x){
+  if(x.dead||!x.lamps) return;
+  const L=x.lightState||car3DLightState(null);
+  const headI=[0,.45,1.2,2.4][L.head]||0;
+  const braking=L.brake||!!(x.drive&&x.drive.braking);
+  const tailI=braking?2.0:(L.head>0?.5:0);          // 小燈/大燈亮時尾燈跟著亮小燈檔
+  const turnOn=L.turn==='hazard';
+  x.lamps.forEach(({m,roles,base})=>{
+    let hex=null,i=0;
+    if(roles.tail&&tailI>0){hex=0xff1a1a;i=tailI;}
+    if(roles.head&&headI>0){hex=0xfff4e0;i=headI;}
+    if(roles.turn&&turnOn){
+      if(CAR3D_TURN_PHASE){hex=0xff9500;i=2.0;}
+      else if(hex===null){hex=0xff9500;i=0;}       // 暗相：獨立方向燈全暗，共用燈碗回到大燈檔
+    }
+    if(hex===null){m.emissive.setHex(base.hex);m.emissiveIntensity=base.i;}
+    else{m.emissive.setHex(hex);m.emissiveIntensity=i;}
+  });
+  if(x.beams) x.beams.forEach(b=>{b.visible=L.head>=2;b.intensity=L.head>=3?b.userData.hi:b.userData.lo;});
+  else if(L.head>=2) ensureCar3DBeams(x);
+  if(!x.loop) renderCar3DOnce(x);
+}
+/* 近燈/遠燈的實體光束（掛在車身群組上，駕駛模式會跟著車走） */
+function ensureCar3DBeams(x){
+  if(x.beams||!x.car||x.dead) return;
+  const {THREE,spec}=x;
+  x.beams=[-1,1].map(side=>{
+    const s=new THREE.SpotLight(0xffeecf,0,34,.42,.6,1.5);
+    s.position.set(-spec.length/2+.06,.66,side*spec.width*.29);
+    s.target.position.set(-11,-.5,side*spec.width*.18);
+    s.castShadow=false;s.userData.lo=60;s.userData.hi=170;
+    x.car.add(s);x.car.add(s.target);
+    return s;
+  });
+  applyCar3DLamps(x);
+}
+function applyCar3DNight(x,night){
+  if(x.dead||!x.env) return;
+  const e=x.env;
+  e.hemi.intensity=night?.25:2.2;      // 規格：白天環境光太強，燈亮不亮看不出來
+  e.key.intensity=night?.5:4.0;
+  e.rim.intensity=night?.3:2.0;
+  e.warm.intensity=night?.08:.7;
+  /* 夜間鋪一塊真的地面：ShadowMaterial 只收影子，SpotLight 的光束要有面可打 */
+  if(night&&!e.nightGround){
+    const g=new x.THREE.Mesh(
+      new x.THREE.PlaneGeometry(60,60),
+      new x.THREE.MeshStandardMaterial({color:0x161c22,roughness:.94,metalness:0}));
+    g.rotation.x=-Math.PI/2;g.position.y=-.012;g.receiveShadow=true;
+    x.scene.add(g);e.nightGround=g;
+  }
+  if(e.nightGround)e.nightGround.visible=night;
+  const bg=night?0x070b0e:e.defaultBg;
+  x.scene.background.setHex(bg);x.scene.fog.color.setHex(bg);
+  if(!x.loop) renderCar3DOnce(x);
+}
+/* 控制列入口：把目前 build 的燈光廣播到所有場景（與 updateCar3DBuild 同樣行為） */
+function updateCar3DLights(build){
+  const L=car3DLightState(build);
+  CAR3D_INSTANCES.forEach(x=>{
+    if(x.dead) return;
+    const prevNight=!!(x.lightState&&x.lightState.night);
+    x.lightState=L;
+    if(prevNight!==L.night||x.nightApplied!==L.night){x.nightApplied=L.night;applyCar3DNight(x,L.night);}
+    applyCar3DLamps(x);
+  });
+}
+/* 方向燈閃爍：規格指定 setInterval 每 400 ms 切換 */
+setInterval(()=>{
+  CAR3D_TURN_PHASE=!CAR3D_TURN_PHASE;
+  CAR3D_INSTANCES.forEach(x=>{
+    if(!x.dead&&x.lightState&&x.lightState.turn==='hazard') applyCar3DLamps(x);
+  });
+},400);
+
+/* ==========================================================================
+   互動預覽 · 模組二：車輛移動（駕駛模式）
+   --------------------------------------------------------------------------
+   自行車模型：heading' = v · tan(steer) / 軸距。
+   車頭朝 −X，前進向量 = (−cosθ, 0, sinθ)；車身朝向改 root 群組的 rotation.y
+   （模型本身的四元數留給 applyBodyTilt() 的俯仰，兩邊不能混）。
+   輪組自轉只轉 makeWheel 的 spin 子群組（懸吊與卡鉗不跟著轉），
+   自轉軸是輪組自己的 Z（camber/toe 定位後的輪軸）。
+   位置狀態存 CAR3D_DRIVE_POS（keyed by spec.id），render() 重建場景後不歸零。
+   ========================================================================== */
+const CAR3D_DRIVE={on:false,follow:false,keys:{},joySteer:0,joyThrottle:0,padThrottle:0,padBrake:0};
+const CAR3D_DRIVE_POS=new Map();
+function car3DDriveState(x){
+  let d=CAR3D_DRIVE_POS.get(x.spec.id);
+  if(!d){d={x:0,z:0,heading:0,speed:0,steer:0,wheelSpin:0,braking:false,prevBraking:false};CAR3D_DRIVE_POS.set(x.spec.id,d);}
+  return d;
+}
+function restoreCar3DDrive(x){
+  const d=car3DDriveState(x);x.drive=d;
+  x.car.position.x=d.x;x.car.position.z=d.z;x.car.rotation.y=d.heading;
+}
+function car3DDriveInputs(){
+  const k=CAR3D_DRIVE.keys;
+  const steer=(k.left?1:0)-(k.right?1:0)-CAR3D_DRIVE.joySteer;
+  const thr=Math.max(k.up?1:0,CAR3D_DRIVE.padThrottle||0,Math.max(0,CAR3D_DRIVE.joyThrottle));
+  const brk=Math.max(k.down?1:0,CAR3D_DRIVE.padBrake||0,Math.max(0,-CAR3D_DRIVE.joyThrottle));
+  return {steer:Math.max(-1,Math.min(1,steer)),thr:Math.min(1,thr),brk:Math.min(1,brk)};
+}
+function stepCar3DDrive(x,dt){
+  const d=x.drive||(x.drive=car3DDriveState(x));
+  const inp=car3DDriveInputs(),cfg=car3DBodyConfig(x.spec.id);
+  const wheelbase=Math.max(2,Math.abs((+cfg.rearX||1.25)-(+cfg.frontX||-1.35)));
+  /* 轉向：往目標角平滑，最大 30° */
+  d.steer+=(inp.steer*.52-d.steer)*Math.min(1,dt*9);
+  /* 縱向：油門推進、煞車減速、停住後倒車；空氣阻力 + 滾動阻力 */
+  if(inp.thr>0) d.speed+=8.2*inp.thr*dt;
+  if(inp.brk>0){
+    if(d.speed>.25) d.speed=Math.max(0,d.speed-12*inp.brk*dt);
+    else d.speed-=4.6*inp.brk*dt;
+  }
+  d.speed-=(d.speed*.30+Math.sign(d.speed)*.45)*dt;
+  if(Math.abs(d.speed)<.05&&!inp.thr&&!inp.brk) d.speed=0;
+  d.speed=Math.max(-7,Math.min(38,d.speed));
+  d.braking=inp.brk>0&&d.speed>.25;
+  /* 自行車模型 */
+  d.heading+=d.speed*Math.tan(d.steer)/wheelbase*dt;
+  d.x+=-Math.cos(d.heading)*d.speed*dt;
+  d.z+= Math.sin(d.heading)*d.speed*dt;
+  x.car.position.x=d.x;x.car.position.z=d.z;x.car.rotation.y=d.heading;
+  /* 輪子：自轉疊在 camber/toe 之後，前輪在束角上加轉向角 */
+  const tireR=Math.max(.2,car3DTireRadius(x.build||{}));
+  d.wheelSpin+=d.speed*dt/tireR;
+  const M=x.THREE.MathUtils;
+  const toeF=M.degToRad(+(x.build&&x.build.toeF)||0),toeR=M.degToRad(+(x.build&&x.build.toeR)||0);
+  x.wheels.forEach(w=>{
+    const s=w.userData.spin;if(s)s.rotation.z=d.wheelSpin;
+    w.rotation.y=w.userData.side*(w.userData.front?toeF:toeR)+(w.userData.front?d.steer:0);
+  });
+  /* 地面與主光跟著車走：格線以整格平移（線不會滑動），影子相機跟著車 */
+  const e=x.env;
+  if(e){
+    const step=e.gridStep||.5;
+    e.grid.position.x=Math.round(d.x/step)*step;
+    e.grid.position.z=Math.round(d.z/step)*step;
+    e.floor.position.x=d.x;e.floor.position.z=d.z;
+    if(e.nightGround){e.nightGround.position.x=d.x;e.nightGround.position.z=d.z;}
+    e.key.position.set(d.x-4.5,7,d.z+5);
+    e.key.target.position.set(d.x,0,d.z);
+  }
+  if(d.braking!==d.prevBraking){d.prevBraking=d.braking;applyCar3DLamps(x);}
+  const hud=document.getElementById('driveSpeed');
+  if(hud)hud.textContent=Math.round(Math.abs(d.speed)*3.6);
+}
+function car3DFollowCam(x,dt){
+  const d=x.drive;if(!d)return;
+  const cam=x.camera;
+  const px=d.x+Math.cos(d.heading)*6.6,pz=d.z-Math.sin(d.heading)*6.6,py=2.5;
+  const a=1-Math.exp(-dt*3.4);
+  cam.position.x+=(px-cam.position.x)*a;
+  cam.position.y+=(py-cam.position.y)*a;
+  cam.position.z+=(pz-cam.position.z)*a;
+  cam.lookAt(d.x,.95,d.z);
+}
+function setCar3DDriveMode(on){
+  CAR3D_DRIVE.on=!!on;
+  CAR3D_DRIVE.keys={};CAR3D_DRIVE.padThrottle=0;CAR3D_DRIVE.padBrake=0;
+  CAR3D_DRIVE.joySteer=0;CAR3D_DRIVE.joyThrottle=0;
+  CAR3D_INSTANCES.forEach(x=>{if(!x.dead&&on&&x.car)restoreCar3DDrive(x);});
+  setCar3DFollow(CAR3D_DRIVE.follow);
+}
+function setCar3DFollow(f){
+  CAR3D_DRIVE.follow=!!f;
+  const following=CAR3D_DRIVE.on&&CAR3D_DRIVE.follow;
+  CAR3D_INSTANCES.forEach(x=>{
+    if(x.dead||!x.controls) return;
+    x.controls.enabled=!following;             // 規格：OrbitControls 與跟隨模式會打架
+    if(!following&&x.drive){x.controls.target.set(x.drive.x,.8,x.drive.z);x.controls.update();}
+  });
+}
+function resetCar3DDrive(){
+  CAR3D_DRIVE_POS.clear();
+  CAR3D_INSTANCES.forEach(x=>{
+    if(x.dead||!x.car) return;
+    x.drive=null;
+    x.car.position.set(0,0,0);x.car.rotation.y=0;
+    x.wheels.forEach(w=>{const s=w.userData.spin;if(s)s.rotation.z=0;});
+    if(x.env){
+      x.env.grid.position.set(0,0,0);x.env.floor.position.set(0,.005,0);
+      if(x.env.nightGround)x.env.nightGround.position.set(0,-.012,0);
+      x.env.key.position.set(-4.5,7,5);x.env.key.target.position.set(0,0,0);
+    }
+    if(x.build)updateCar3DBuild(x.build);
+    const view=CAR3D_VIEWS.get(x.spec.id);
+    if(view)applyCar3DView(x,view);
+    if(!x.loop)renderCar3DOnce(x);
+  });
+  const hud=document.getElementById('driveSpeed');if(hud)hud.textContent='0';
+}
+const CAR3D_KEYMAP={ArrowUp:'up',KeyW:'up',ArrowDown:'down',KeyS:'down',ArrowLeft:'left',KeyA:'left',ArrowRight:'right',KeyD:'right'};
+window.addEventListener('keydown',e=>{
+  if(!CAR3D_DRIVE.on) return;
+  const t=e.target;if(t&&/^(input|textarea|select)$/i.test(t.tagName)) return;
+  const k=CAR3D_KEYMAP[e.code];if(!k) return;
+  CAR3D_DRIVE.keys[k]=true;e.preventDefault();
+});
+window.addEventListener('keyup',e=>{const k=CAR3D_KEYMAP[e.code];if(k)CAR3D_DRIVE.keys[k]=false;});
+
+/* ==========================================================================
+   互動預覽 · 模組三：引擎聲（Web Audio 合成）
+   --------------------------------------------------------------------------
+   不用錄音：授權查證成本高、base64 內嵌會撐大單檔，而且固定音檔沒辦法
+   跟轉速即時連動。合成鏈（規格）：
+     鋸齒基頻 @ 點火頻率 f = rpm/60 × (缸數/2)
+       + ×2/×3/×4 諧波（振幅遞減 0.6/0.35/0.2）
+       + 帶通白噪音（進氣／排氣氣流）
+     → 低通（cutoff 隨負載開）→ WaveShaper 輕失真（負載大加重）→ 總音量
+   渦輪車放油門觸發 0.25 s 洩壓閥噪音掃頻。音量/靜音存 localStorage。
+   ========================================================================== */
+const CAR3D_REDLINE={'4G63T':7000,'420A':6500,S50B30:7280,S50B32:7600,S50B30US:6800,S52B32:7000,
+  M42B18:6500,M44B19:6500,M50B20:6500,M50B20TU:6500,M50B25:6500,M50B25TU:6500,
+  M52B20:6500,M52B25:6500,M52B28:6500,M40B16:6000,M40B18:6000,M43B16:6000,M43B18:6000,
+  M41D17:4800,M51D25:4800,M51D25OL:4800};
+function car3DEngineSpec(){
+  const c=typeof car==='function'?car():null;
+  const eng=(c&&typeof carEngine==='function')?carEngine(c):null;
+  const mdl=(c&&typeof mdlById==='function')?mdlById(c.modelId):null;
+  const cyl=(eng&&+eng.cyl)||4;
+  const redline=(eng&&CAR3D_REDLINE[eng.id])||(eng&&eng.diesel?4800:(eng&&eng.cam==='DOHC'?6800:6200));
+  return {cyl,redline,idle:eng&&eng.diesel?760:800,diesel:!!(eng&&eng.diesel),
+          turbo:!!(mdl&&mdl.turbo),name:eng?eng.name:'引擎'};
+}
+const C3AUD={ctx:null,nodes:null,running:false,starting:false,rpm:0,slider:0,hold:0,
+  vol:.7,muted:false,spec:null,raf:0,last:0,startAt:0,bovAt:0,lastThr:0,limitPhase:0};
+try{
+  const s=JSON.parse(localStorage.getItem('garage.c3aud')||'{}');
+  if(Number.isFinite(+s.vol))C3AUD.vol=Math.max(0,Math.min(1,+s.vol));
+  C3AUD.muted=!!s.muted;
+}catch(e){}
+function c3audSave(){try{localStorage.setItem('garage.c3aud',JSON.stringify({vol:C3AUD.vol,muted:C3AUD.muted}));}catch(e){}}
+function c3audGraph(){
+  const ctx=C3AUD.ctx;
+  const master=ctx.createGain();master.gain.value=C3AUD.muted?0:C3AUD.vol;
+  master.connect(ctx.destination);
+  const comp=ctx.createDynamicsCompressor();
+  comp.threshold.value=-16;comp.knee.value=18;comp.ratio.value=8;comp.attack.value=.004;comp.release.value=.16;
+  comp.connect(master);
+  const shaper=ctx.createWaveShaper();
+  const N=1024,curve=new Float32Array(N);
+  for(let i=0;i<N;i++){const u=i/(N-1)*2-1;curve[i]=Math.tanh(2.6*u);}
+  shaper.curve=curve;shaper.oversample='2x';shaper.connect(comp);
+  const pre=ctx.createGain();pre.gain.value=.8;pre.connect(shaper);       // 失真前推量＝負載
+  const lp=ctx.createBiquadFilter();lp.type='lowpass';lp.frequency.value=900;lp.Q.value=.6;lp.connect(pre);
+  const sum=ctx.createGain();sum.gain.value=0;sum.connect(lp);
+  const HARM=[[1,.5],[2,.30],[3,.175],[4,.10]];   // 規格比例 1/.6/.35/.2 × 總縮放 .5
+  const oscs=HARM.map(([n,a],i)=>{
+    const o=ctx.createOscillator();o.type='sawtooth';o.frequency.value=40*n;
+    if(i)o.detune.value=i*4;                       // 些微失諧 → 機械拍頻感
+    const g=ctx.createGain();g.gain.value=a;
+    o.connect(g);g.connect(sum);o.start();
+    return {o,n};
+  });
+  const nbuf=ctx.createBuffer(1,ctx.sampleRate*2,ctx.sampleRate);
+  const arr=nbuf.getChannelData(0);
+  for(let i=0;i<arr.length;i++)arr[i]=Math.random()*2-1;
+  const noise=ctx.createBufferSource();noise.buffer=nbuf;noise.loop=true;
+  const nbp=ctx.createBiquadFilter();nbp.type='bandpass';nbp.frequency.value=900;nbp.Q.value=.7;
+  const ng=ctx.createGain();ng.gain.value=0;
+  noise.connect(nbp);nbp.connect(ng);ng.connect(sum);noise.start();
+  return {master,comp,shaper,pre,lp,sum,oscs,nbuf,nbp,ng};
+}
+/* 洩壓閥：0.25 s 高頻噪音往下掃（渦輪車限定） */
+function c3audBOV(){
+  const ctx=C3AUD.ctx,n=C3AUD.nodes,t=ctx.currentTime;
+  const src=ctx.createBufferSource();src.buffer=n.nbuf;
+  const bp=ctx.createBiquadFilter();bp.type='bandpass';bp.Q.value=5;
+  bp.frequency.setValueAtTime(2600,t);
+  bp.frequency.exponentialRampToValueAtTime(650,t+.25);
+  const g=ctx.createGain();
+  g.gain.setValueAtTime(.0001,t);
+  g.gain.exponentialRampToValueAtTime(.55,t+.03);
+  g.gain.exponentialRampToValueAtTime(.0001,t+.25);
+  src.connect(bp);bp.connect(g);g.connect(n.comp);
+  src.start(t);src.stop(t+.3);
+}
+/* 起動馬達：斷續的低頻脈衝，0.9 s 後點火 */
+function c3audStarter(t0){
+  const ctx=C3AUD.ctx,n=C3AUD.nodes;
+  const o=ctx.createOscillator();o.type='square';o.frequency.value=44;
+  const am=ctx.createOscillator();am.type='sine';am.frequency.value=10.5;
+  const amG=ctx.createGain();amG.gain.value=.5;
+  const g=ctx.createGain();g.gain.value=0;
+  am.connect(amG);amG.connect(g.gain);
+  o.connect(g);g.connect(n.lp);
+  g.gain.setValueAtTime(.0001,t0);
+  g.gain.linearRampToValueAtTime(.5,t0+.08);
+  g.gain.setValueAtTime(.5,t0+.72);
+  g.gain.linearRampToValueAtTime(.0001,t0+.92);
+  o.start(t0);o.stop(t0+1);am.start(t0);am.stop(t0+1);
+}
+function c3audStart(){
+  const AC=window.AudioContext||window.webkitAudioContext;
+  if(!AC){if(typeof toast==='function')toast('這個瀏覽器不支援 Web Audio');return;}
+  if(!C3AUD.ctx)C3AUD.ctx=new AC();
+  if(!C3AUD.nodes)C3AUD.nodes=c3audGraph();
+  C3AUD.ctx.resume();
+  C3AUD.spec=car3DEngineSpec();
+  C3AUD.running=true;C3AUD.starting=true;C3AUD.rpm=0;C3AUD.lastThr=0;
+  const t=C3AUD.ctx.currentTime;
+  C3AUD.startAt=performance.now()/1000;   // 流程計時用牆鐘（ctx 時鐘在背景可能凍結）
+  c3audStarter(t);
+  const g=C3AUD.nodes.sum.gain;
+  g.cancelScheduledValues(t);g.setValueAtTime(.0001,t);
+  g.exponentialRampToValueAtTime(.9,t+1.15);
+  cancelAnimationFrame(C3AUD.raf);C3AUD.last=0;
+  C3AUD.raf=requestAnimationFrame(c3audLoop);
+  c3audUI();
+}
+function c3audStop(quiet){
+  if(!C3AUD.ctx)return;
+  const t=C3AUD.ctx.currentTime;
+  C3AUD.running=false;C3AUD.starting=false;C3AUD.rpm=0;C3AUD.hold=0;
+  cancelAnimationFrame(C3AUD.raf);
+  if(C3AUD.nodes){
+    const g=C3AUD.nodes.sum.gain;
+    g.cancelScheduledValues(t);g.setValueAtTime(Math.max(.0001,g.value),t);
+    g.exponentialRampToValueAtTime(.0001,t+.35);
+  }
+  setTimeout(()=>{if(!C3AUD.running&&C3AUD.ctx&&C3AUD.ctx.state==='running')C3AUD.ctx.suspend();},500);
+  const el=document.getElementById('c3RpmVal');if(el)el.textContent='0';
+  const bar=document.getElementById('c3RpmBar');if(bar)bar.style.width='0';
+  if(!quiet)c3audUI();
+}
+function toggleCar3DEngine(){C3AUD.running?c3audStop():c3audStart();}
+function c3audLoop(ts){
+  if(!C3AUD.running)return;
+  C3AUD.raf=requestAnimationFrame(c3audLoop);
+  const dt=Math.min(.25,C3AUD.last?(ts-C3AUD.last)/1000:.016);C3AUD.last=ts;
+  const S=C3AUD.spec,n=C3AUD.nodes,ctx=C3AUD.ctx,t=ctx.currentTime;
+  const sinceStart=performance.now()/1000-C3AUD.startAt;
+  let thr=Math.max(C3AUD.hold,C3AUD.slider,CAR3D_DRIVE.on?car3DDriveInputs().thr:0);
+  const idle=S.idle,red=S.redline;
+  if(C3AUD.starting){
+    if(sinceStart<.85)C3AUD.rpm=90+sinceStart*260;   // 起動馬達拖轉
+    else{C3AUD.starting=false;C3AUD.rpm=360;}
+  }else{
+    let target=idle+thr*(red-idle);
+    if(sinceStart<1.6)target=Math.max(target,idle+(1.6-sinceStart)*430);  // 點火竄升再回落
+    if(CAR3D_DRIVE.on){                              // 駕駛模式：車速墊高轉速（掛檔感）
+      let speed=0;
+      CAR3D_INSTANCES.some(x=>{if(!x.dead&&x.drive){speed=Math.abs(x.drive.speed);return true;}return false;});
+      target=Math.max(target,Math.min(red*.85,idle+speed*95));
+    }
+    const rise=(red-idle)/.85,fall=(red-idle)/1.6;
+    if(target>C3AUD.rpm)C3AUD.rpm=Math.min(target,C3AUD.rpm+rise*dt*(.35+.65*thr));
+    else C3AUD.rpm=Math.max(target,C3AUD.rpm-fall*dt);
+    if(C3AUD.rpm>=red-30&&thr>.85){                  // 斷油限轉跳動
+      C3AUD.limitPhase+=dt*26;
+      C3AUD.rpm=red-30-Math.max(0,Math.sin(C3AUD.limitPhase))*150;
+    }
+  }
+  const f=C3AUD.rpm/60*(S.cyl/2);                    // 點火頻率
+  n.oscs.forEach(({o,n:h})=>o.frequency.setTargetAtTime(Math.min(4200,Math.max(8,f*h)),t,.02));
+  const load=Math.min(1,thr*.8+.2*(C3AUD.rpm/red));
+  const tips=(typeof car==='function'&&car()&&car().build&&car().build.tips)||'single';
+  const tipF={none:.9,single:1,dual:1.12,quad:1.3}[tips]||1;   // 規格：四出比單出開得更亮
+  n.lp.frequency.setTargetAtTime(Math.min(11000,(260+f*3.4+4200*load)*tipF),t,.04);
+  n.pre.gain.setTargetAtTime(.55+1.5*load+(S.diesel?.35:0),t,.05);
+  n.ng.gain.setTargetAtTime(.02+.11*thr+.02*(C3AUD.rpm/red)+(S.diesel?.05:0)+(S.turbo?.05*thr:0),t,.05);
+  n.nbp.frequency.setTargetAtTime(500+C3AUD.rpm*.5+(S.turbo?thr*1800:0),t,.05);
+  if(sinceStart>1.2)n.sum.gain.setTargetAtTime(.5+.45*load,t,.08);
+  if(S.turbo&&C3AUD.lastThr>.5&&thr<.15&&C3AUD.rpm>2600&&t-C3AUD.bovAt>.9){C3AUD.bovAt=t;c3audBOV();}
+  C3AUD.lastThr+=(thr-C3AUD.lastThr)*Math.min(1,dt*6);
+  const el=document.getElementById('c3RpmVal');
+  if(el){
+    el.textContent=Math.round(C3AUD.rpm);
+    const bar=document.getElementById('c3RpmBar');
+    if(bar){
+      const p=Math.min(100,C3AUD.rpm/red*100);
+      bar.style.width=p+'%';
+      bar.style.background=p>92?'var(--red)':p>78?'var(--orange)':'var(--tech)';
+    }
+  }
+}
+function setCar3DVolume(v){
+  C3AUD.vol=Math.max(0,Math.min(1,+v||0));
+  if(C3AUD.nodes&&!C3AUD.muted)C3AUD.nodes.master.gain.setTargetAtTime(C3AUD.vol,C3AUD.ctx.currentTime,.03);
+  c3audSave();
+}
+function toggleCar3DMute(){
+  C3AUD.muted=!C3AUD.muted;
+  if(C3AUD.nodes)C3AUD.nodes.master.gain.setTargetAtTime(C3AUD.muted?0:C3AUD.vol,C3AUD.ctx.currentTime,.02);
+  c3audSave();c3audUI();
+}
+function setCar3DThrottle(v){C3AUD.slider=Math.max(0,Math.min(1,+v||0));}
+function holdCar3DThrottle(on){C3AUD.hold=on?1:0;}
+function c3audUI(){
+  const b=document.getElementById('c3EngineBtn');
+  if(b){b.textContent=C3AUD.running?'熄火':'發動引擎';b.classList.toggle('pri',!C3AUD.running);}
+  const m=document.getElementById('c3MuteBtn');
+  if(m)m.textContent=C3AUD.muted?'取消靜音':'靜音';
+  const lbl=document.getElementById('c3EngineName');
+  if(lbl){
+    const s=car3DEngineSpec();
+    lbl.textContent=`${s.name} · ${s.cyl} 缸 · 紅線 ${s.redline} rpm${s.turbo?' · 渦輪（放油門有洩壓閥）':''}`;
+  }
+}
+/* 規格：切分頁要 suspend()，不然背景會一直發聲；離開設計預覽頁直接熄火 */
+document.addEventListener('visibilitychange',()=>{
+  if(!C3AUD.ctx)return;
+  if(document.hidden){if(C3AUD.ctx.state==='running')C3AUD.ctx.suspend();}
+  else if(C3AUD.running){C3AUD.ctx.resume();C3AUD.last=0;}
+});
+window.addEventListener('hashchange',()=>{
+  if(C3AUD.running&&!String(location.hash).startsWith('#build/design'))c3audStop(true);
+});
 
 const carSVG=carPhoto;
 
@@ -5555,7 +6038,7 @@ function pgDesign(){
           <div class="after" id="abAfter" style="--ab-pos:${ABPOS}%">${carPhoto(b,{bodyId:c.bodyId,uid:'ab1'})}</div>
           <div class="abh" id="abH" style="left:${ABPOS}%"></div>
           <div class="abl" style="left:14px">改裝後</div><div class="abl" style="right:14px">原廠</div>`
-        : carPhoto(b,{bodyId:c.bodyId,uid:'st'})}
+        : carPhoto(b,{bodyId:c.bodyId,uid:'st'})+driveOverlay()}
       </div>
 
       <div class="btnrow">
@@ -5564,6 +6047,8 @@ function pgDesign(){
         <button class="btn sm" style="margin-left:auto" onclick="exportPng()">下載圖片</button>
         <button class="btn sm" onclick="resetBuild()">回到原廠</button>
       </div>
+
+      ${AB?'':c3iBar(b)}
 
       <!-- 相容性摘要列：只放三個數字，細節收進面板 -->
       <div class="sumbar">
@@ -5933,8 +6418,138 @@ function exportPng(){
   a.click();toast('已下載目前 3D 視角');
 }
 
+/* ==========================================================================
+   互動預覽控制列（燈光 / 引擎聲 / 駕駛）
+   引擎邏輯在 31-car3d.js：這裡只有 UI 與事件接線。
+   所有控制都走「直接改 DOM + 廣播到 3D 場景」，不觸發整頁 render() ——
+   否則每按一次開關就重建一次 WebGL 場景。
+   ========================================================================== */
+const C3I_CSS=`<style>
+.c3i{display:flex;flex-direction:column;gap:10px}
+.c3i .rowline{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.c3i .lb{font-size:12px;color:var(--mut);flex:0 0 56px}
+.c3i .btn.tgl.on{background:var(--tech);border-color:var(--tech);color:#0a120e}
+.c3i input[type=range]{flex:1;min-width:80px}
+.c3rpm{flex:1;min-width:130px;display:flex;align-items:center;gap:8px}
+.c3rpm .bar{flex:1;height:6px;border-radius:3px;background:var(--fill);overflow:hidden}
+.c3rpm .bar i{display:block;height:100%;width:0;background:var(--tech);transition:width .06s linear}
+.c3rpm b{font-variant-numeric:tabular-nums;min-width:44px;text-align:right;font-size:14px}
+.drive-ov{position:absolute;inset:0;z-index:3;pointer-events:none;display:none}
+.stage.driving .drive-ov{display:block}
+.drive-hud{position:absolute;top:10px;left:12px;background:rgba(8,14,12,.55);color:#e7f3ee;
+  padding:3px 10px;border-radius:8px;font-size:12px;backdrop-filter:blur(4px)}
+.drive-hud b{font-size:19px;font-variant-numeric:tabular-nums}
+.joy{position:absolute;left:16px;bottom:14px;width:96px;height:96px;border-radius:50%;
+  background:rgba(10,16,14,.35);border:1px solid rgba(255,255,255,.28);pointer-events:auto;touch-action:none}
+.joy i{position:absolute;left:50%;top:50%;width:40px;height:40px;border-radius:50%;
+  background:rgba(255,255,255,.78);transform:translate(-50%,-50%);pointer-events:none}
+.pedals{position:absolute;right:14px;bottom:14px;display:flex;gap:10px;pointer-events:auto}
+.pedals button{width:60px;height:60px;border-radius:50%;border:1px solid rgba(255,255,255,.3);
+  background:rgba(10,16,14,.45);color:#fff;font-size:13px;touch-action:none;user-select:none;-webkit-user-select:none}
+.pedals button:active{background:var(--tech);color:#0a120e}
+</style>`;
+function driveOverlay(){
+  return `<div class="drive-ov">
+    <div class="drive-hud"><b id="driveSpeed">0</b> km/h</div>
+    <div class="joy" id="c3Joy"><i id="c3JoyKnob"></i></div>
+    <div class="pedals">
+      <button id="c3PedalB" type="button" aria-label="煞車">煞車</button>
+      <button id="c3PedalA" type="button" aria-label="油門">油門</button>
+    </div>
+  </div>`;
+}
+function c3iBar(b){
+  const L=car3DLightState(b);
+  return `${C3I_CSS}<div class="card c3i">
+    <div class="rowline"><span class="lb">燈光</span>
+      <div class="seg" id="c3HeadSeg">${[[0,'關'],[1,'小燈'],[2,'近燈'],[3,'遠燈']].map(([v,n])=>
+        `<button class="${L.head===v?'on':''}" onclick="c3iHead(${v})">${n}</button>`).join('')}</div>
+      <button class="btn sm tgl ${L.brake?'on':''}" id="c3Brake" onclick="c3iLight('brake')">煞車燈</button>
+      <button class="btn sm tgl ${L.turn==='hazard'?'on':''}" id="c3Turn" onclick="c3iTurn()">雙黃警示</button>
+      <button class="btn sm tgl ${L.night?'on':''}" id="c3Night" onclick="c3iLight('night')">夜間模式</button>
+    </div>
+    <div class="rowline"><span class="lb">引擎聲</span>
+      <button class="btn sm ${C3AUD.running?'':'pri'}" id="c3EngineBtn" onclick="toggleCar3DEngine()">${C3AUD.running?'熄火':'發動引擎'}</button>
+      <button class="btn sm" id="c3Hold" onpointerdown="holdCar3DThrottle(1)" onpointerup="holdCar3DThrottle(0)"
+        onpointercancel="holdCar3DThrottle(0)" onpointerleave="holdCar3DThrottle(0)">按住吹油</button>
+      <input type="range" min="0" max="100" value="${Math.round(C3AUD.slider*100)}" aria-label="持續油門"
+        oninput="setCar3DThrottle(this.value/100)">
+      <div class="c3rpm"><div class="bar"><i id="c3RpmBar"></i></div><b id="c3RpmVal">0</b><span class="mut" style="font-size:11px">rpm</span></div>
+    </div>
+    <div class="rowline"><span class="lb"></span>
+      <span class="mut" id="c3EngineName" style="font-size:12px"></span>
+      <span style="flex:1"></span>
+      <input type="range" min="0" max="100" value="${Math.round(C3AUD.vol*100)}" style="max-width:110px;flex:0 1 110px"
+        aria-label="音量" oninput="setCar3DVolume(this.value/100)">
+      <button class="btn sm" id="c3MuteBtn" onclick="toggleCar3DMute()">${C3AUD.muted?'取消靜音':'靜音'}</button>
+    </div>
+    <div class="rowline"><span class="lb">駕駛</span>
+      <button class="btn sm tgl ${CAR3D_DRIVE.on?'on':''}" id="c3Drive" onclick="c3iDrive()">駕駛模式</button>
+      <button class="btn sm tgl ${CAR3D_DRIVE.follow?'on':''}" id="c3Follow" onclick="c3iFollow()">跟隨鏡頭</button>
+      <button class="btn sm" onclick="resetCar3DDrive()">回到原點</button>
+      <span class="mut" style="font-size:12px">WASD／方向鍵；手機用畫面左下搖桿與右下踏板</span>
+    </div>
+  </div>`;
+}
+function c3iLightsMut(fn){
+  const c=car();if(!c)return;
+  const L=car3DLightState(c.build);fn(L);
+  c.build.lights=L;saveDB();
+  updateCar3DLights(c.build);c3iLightUI(L);
+}
+function c3iHead(v){c3iLightsMut(L=>L.head=v);}
+function c3iLight(k){c3iLightsMut(L=>L[k]=!L[k]);}
+function c3iTurn(){c3iLightsMut(L=>L.turn=L.turn==='hazard'?'none':'hazard');}
+function c3iLightUI(L){
+  const seg=$('#c3HeadSeg');
+  if(seg)[...seg.children].forEach((el,i)=>el.classList.toggle('on',i===L.head));
+  $('#c3Brake')?.classList.toggle('on',L.brake);
+  $('#c3Turn')?.classList.toggle('on',L.turn==='hazard');
+  $('#c3Night')?.classList.toggle('on',L.night);
+}
+function c3iDrive(){
+  setCar3DDriveMode(!CAR3D_DRIVE.on);
+  $('#c3Drive')?.classList.toggle('on',CAR3D_DRIVE.on);
+  $('#stage')?.classList.toggle('driving',CAR3D_DRIVE.on);
+}
+function c3iFollow(){
+  setCar3DFollow(!CAR3D_DRIVE.follow);
+  $('#c3Follow')?.classList.toggle('on',CAR3D_DRIVE.follow);
+}
+function afterInteract(){
+  const joy=$('#c3Joy'),knob=$('#c3JoyKnob');
+  if(joy){
+    let pid=null;
+    const setJoy=(dx,dy)=>{
+      CAR3D_DRIVE.joySteer=dx;CAR3D_DRIVE.joyThrottle=-dy;
+      if(knob)knob.style.transform=`translate(calc(-50% + ${(dx*28).toFixed(1)}px),calc(-50% + ${(dy*28).toFixed(1)}px))`;
+    };
+    const move=e=>{
+      if(pid===null||e.pointerId!==pid)return;
+      const r=joy.getBoundingClientRect();
+      let dx=(e.clientX-r.left-r.width/2)/(r.width/2),dy=(e.clientY-r.top-r.height/2)/(r.height/2);
+      const len=Math.hypot(dx,dy);if(len>1){dx/=len;dy/=len;}
+      setJoy(dx,dy);
+    };
+    joy.addEventListener('pointerdown',e=>{pid=e.pointerId;joy.setPointerCapture(pid);move(e);});
+    joy.addEventListener('pointermove',move);
+    const end=e=>{if(e.pointerId!==pid)return;pid=null;setJoy(0,0);};
+    joy.addEventListener('pointerup',end);joy.addEventListener('pointercancel',end);
+  }
+  const bindPedal=(el,k)=>{
+    if(!el)return;
+    el.addEventListener('pointerdown',e=>{e.preventDefault();CAR3D_DRIVE[k]=1;el.setPointerCapture(e.pointerId);});
+    ['pointerup','pointercancel','lostpointercapture'].forEach(ev=>el.addEventListener(ev,()=>CAR3D_DRIVE[k]=0));
+  };
+  bindPedal($('#c3PedalA'),'padThrottle');
+  bindPedal($('#c3PedalB'),'padBrake');
+  if(CAR3D_DRIVE.on)$('#stage')?.classList.add('driving');
+  c3audUI();
+}
+
 /* A/B 拖曳 */
 function afterDesign(){
+  afterInteract();
   const h = $('#abH'), af = $('#abAfter'), st = $('#stage');
   if(!h||!af||!st) return;
   let drag = false;

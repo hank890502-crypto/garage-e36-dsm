@@ -42,7 +42,7 @@ function pgDesign(){
           <div class="after" id="abAfter" style="--ab-pos:${ABPOS}%">${carPhoto(b,{bodyId:c.bodyId,uid:'ab1'})}</div>
           <div class="abh" id="abH" style="left:${ABPOS}%"></div>
           <div class="abl" style="left:14px">改裝後</div><div class="abl" style="right:14px">原廠</div>`
-        : carPhoto(b,{bodyId:c.bodyId,uid:'st'})}
+        : carPhoto(b,{bodyId:c.bodyId,uid:'st'})+driveOverlay()}
       </div>
 
       <div class="btnrow">
@@ -51,6 +51,8 @@ function pgDesign(){
         <button class="btn sm" style="margin-left:auto" onclick="exportPng()">下載圖片</button>
         <button class="btn sm" onclick="resetBuild()">回到原廠</button>
       </div>
+
+      ${AB?'':c3iBar(b)}
 
       <!-- 相容性摘要列：只放三個數字，細節收進面板 -->
       <div class="sumbar">
@@ -420,8 +422,138 @@ function exportPng(){
   a.click();toast('已下載目前 3D 視角');
 }
 
+/* ==========================================================================
+   互動預覽控制列（燈光 / 引擎聲 / 駕駛）
+   引擎邏輯在 31-car3d.js：這裡只有 UI 與事件接線。
+   所有控制都走「直接改 DOM + 廣播到 3D 場景」，不觸發整頁 render() ——
+   否則每按一次開關就重建一次 WebGL 場景。
+   ========================================================================== */
+const C3I_CSS=`<style>
+.c3i{display:flex;flex-direction:column;gap:10px}
+.c3i .rowline{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.c3i .lb{font-size:12px;color:var(--mut);flex:0 0 56px}
+.c3i .btn.tgl.on{background:var(--tech);border-color:var(--tech);color:#0a120e}
+.c3i input[type=range]{flex:1;min-width:80px}
+.c3rpm{flex:1;min-width:130px;display:flex;align-items:center;gap:8px}
+.c3rpm .bar{flex:1;height:6px;border-radius:3px;background:var(--fill);overflow:hidden}
+.c3rpm .bar i{display:block;height:100%;width:0;background:var(--tech);transition:width .06s linear}
+.c3rpm b{font-variant-numeric:tabular-nums;min-width:44px;text-align:right;font-size:14px}
+.drive-ov{position:absolute;inset:0;z-index:3;pointer-events:none;display:none}
+.stage.driving .drive-ov{display:block}
+.drive-hud{position:absolute;top:10px;left:12px;background:rgba(8,14,12,.55);color:#e7f3ee;
+  padding:3px 10px;border-radius:8px;font-size:12px;backdrop-filter:blur(4px)}
+.drive-hud b{font-size:19px;font-variant-numeric:tabular-nums}
+.joy{position:absolute;left:16px;bottom:14px;width:96px;height:96px;border-radius:50%;
+  background:rgba(10,16,14,.35);border:1px solid rgba(255,255,255,.28);pointer-events:auto;touch-action:none}
+.joy i{position:absolute;left:50%;top:50%;width:40px;height:40px;border-radius:50%;
+  background:rgba(255,255,255,.78);transform:translate(-50%,-50%);pointer-events:none}
+.pedals{position:absolute;right:14px;bottom:14px;display:flex;gap:10px;pointer-events:auto}
+.pedals button{width:60px;height:60px;border-radius:50%;border:1px solid rgba(255,255,255,.3);
+  background:rgba(10,16,14,.45);color:#fff;font-size:13px;touch-action:none;user-select:none;-webkit-user-select:none}
+.pedals button:active{background:var(--tech);color:#0a120e}
+</style>`;
+function driveOverlay(){
+  return `<div class="drive-ov">
+    <div class="drive-hud"><b id="driveSpeed">0</b> km/h</div>
+    <div class="joy" id="c3Joy"><i id="c3JoyKnob"></i></div>
+    <div class="pedals">
+      <button id="c3PedalB" type="button" aria-label="煞車">煞車</button>
+      <button id="c3PedalA" type="button" aria-label="油門">油門</button>
+    </div>
+  </div>`;
+}
+function c3iBar(b){
+  const L=car3DLightState(b);
+  return `${C3I_CSS}<div class="card c3i">
+    <div class="rowline"><span class="lb">燈光</span>
+      <div class="seg" id="c3HeadSeg">${[[0,'關'],[1,'小燈'],[2,'近燈'],[3,'遠燈']].map(([v,n])=>
+        `<button class="${L.head===v?'on':''}" onclick="c3iHead(${v})">${n}</button>`).join('')}</div>
+      <button class="btn sm tgl ${L.brake?'on':''}" id="c3Brake" onclick="c3iLight('brake')">煞車燈</button>
+      <button class="btn sm tgl ${L.turn==='hazard'?'on':''}" id="c3Turn" onclick="c3iTurn()">雙黃警示</button>
+      <button class="btn sm tgl ${L.night?'on':''}" id="c3Night" onclick="c3iLight('night')">夜間模式</button>
+    </div>
+    <div class="rowline"><span class="lb">引擎聲</span>
+      <button class="btn sm ${C3AUD.running?'':'pri'}" id="c3EngineBtn" onclick="toggleCar3DEngine()">${C3AUD.running?'熄火':'發動引擎'}</button>
+      <button class="btn sm" id="c3Hold" onpointerdown="holdCar3DThrottle(1)" onpointerup="holdCar3DThrottle(0)"
+        onpointercancel="holdCar3DThrottle(0)" onpointerleave="holdCar3DThrottle(0)">按住吹油</button>
+      <input type="range" min="0" max="100" value="${Math.round(C3AUD.slider*100)}" aria-label="持續油門"
+        oninput="setCar3DThrottle(this.value/100)">
+      <div class="c3rpm"><div class="bar"><i id="c3RpmBar"></i></div><b id="c3RpmVal">0</b><span class="mut" style="font-size:11px">rpm</span></div>
+    </div>
+    <div class="rowline"><span class="lb"></span>
+      <span class="mut" id="c3EngineName" style="font-size:12px"></span>
+      <span style="flex:1"></span>
+      <input type="range" min="0" max="100" value="${Math.round(C3AUD.vol*100)}" style="max-width:110px;flex:0 1 110px"
+        aria-label="音量" oninput="setCar3DVolume(this.value/100)">
+      <button class="btn sm" id="c3MuteBtn" onclick="toggleCar3DMute()">${C3AUD.muted?'取消靜音':'靜音'}</button>
+    </div>
+    <div class="rowline"><span class="lb">駕駛</span>
+      <button class="btn sm tgl ${CAR3D_DRIVE.on?'on':''}" id="c3Drive" onclick="c3iDrive()">駕駛模式</button>
+      <button class="btn sm tgl ${CAR3D_DRIVE.follow?'on':''}" id="c3Follow" onclick="c3iFollow()">跟隨鏡頭</button>
+      <button class="btn sm" onclick="resetCar3DDrive()">回到原點</button>
+      <span class="mut" style="font-size:12px">WASD／方向鍵；手機用畫面左下搖桿與右下踏板</span>
+    </div>
+  </div>`;
+}
+function c3iLightsMut(fn){
+  const c=car();if(!c)return;
+  const L=car3DLightState(c.build);fn(L);
+  c.build.lights=L;saveDB();
+  updateCar3DLights(c.build);c3iLightUI(L);
+}
+function c3iHead(v){c3iLightsMut(L=>L.head=v);}
+function c3iLight(k){c3iLightsMut(L=>L[k]=!L[k]);}
+function c3iTurn(){c3iLightsMut(L=>L.turn=L.turn==='hazard'?'none':'hazard');}
+function c3iLightUI(L){
+  const seg=$('#c3HeadSeg');
+  if(seg)[...seg.children].forEach((el,i)=>el.classList.toggle('on',i===L.head));
+  $('#c3Brake')?.classList.toggle('on',L.brake);
+  $('#c3Turn')?.classList.toggle('on',L.turn==='hazard');
+  $('#c3Night')?.classList.toggle('on',L.night);
+}
+function c3iDrive(){
+  setCar3DDriveMode(!CAR3D_DRIVE.on);
+  $('#c3Drive')?.classList.toggle('on',CAR3D_DRIVE.on);
+  $('#stage')?.classList.toggle('driving',CAR3D_DRIVE.on);
+}
+function c3iFollow(){
+  setCar3DFollow(!CAR3D_DRIVE.follow);
+  $('#c3Follow')?.classList.toggle('on',CAR3D_DRIVE.follow);
+}
+function afterInteract(){
+  const joy=$('#c3Joy'),knob=$('#c3JoyKnob');
+  if(joy){
+    let pid=null;
+    const setJoy=(dx,dy)=>{
+      CAR3D_DRIVE.joySteer=dx;CAR3D_DRIVE.joyThrottle=-dy;
+      if(knob)knob.style.transform=`translate(calc(-50% + ${(dx*28).toFixed(1)}px),calc(-50% + ${(dy*28).toFixed(1)}px))`;
+    };
+    const move=e=>{
+      if(pid===null||e.pointerId!==pid)return;
+      const r=joy.getBoundingClientRect();
+      let dx=(e.clientX-r.left-r.width/2)/(r.width/2),dy=(e.clientY-r.top-r.height/2)/(r.height/2);
+      const len=Math.hypot(dx,dy);if(len>1){dx/=len;dy/=len;}
+      setJoy(dx,dy);
+    };
+    joy.addEventListener('pointerdown',e=>{pid=e.pointerId;joy.setPointerCapture(pid);move(e);});
+    joy.addEventListener('pointermove',move);
+    const end=e=>{if(e.pointerId!==pid)return;pid=null;setJoy(0,0);};
+    joy.addEventListener('pointerup',end);joy.addEventListener('pointercancel',end);
+  }
+  const bindPedal=(el,k)=>{
+    if(!el)return;
+    el.addEventListener('pointerdown',e=>{e.preventDefault();CAR3D_DRIVE[k]=1;el.setPointerCapture(e.pointerId);});
+    ['pointerup','pointercancel','lostpointercapture'].forEach(ev=>el.addEventListener(ev,()=>CAR3D_DRIVE[k]=0));
+  };
+  bindPedal($('#c3PedalA'),'padThrottle');
+  bindPedal($('#c3PedalB'),'padBrake');
+  if(CAR3D_DRIVE.on)$('#stage')?.classList.add('driving');
+  c3audUI();
+}
+
 /* A/B 拖曳 */
 function afterDesign(){
+  afterInteract();
   const h = $('#abH'), af = $('#abAfter'), st = $('#stage');
   if(!h||!af||!st) return;
   let drag = false;
