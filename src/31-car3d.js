@@ -1651,7 +1651,7 @@ setInterval(()=>{
    的俯仰，兩邊混用會互相干擾）。輪組自轉只轉 makeWheel 的 spin 子群組。
    ========================================================================== */
 const CAR3D_DRIVE={on:false,follow:false,keys:{},joySteer:0,joyThrottle:0,
-  padThrottle:0,padBrake:0,padHandbrake:0,sim:null,hudAt:0};
+  padThrottle:0,padBrake:0,padHandbrake:0,sim:null,hudAt:0,venue:'road'};
 
 function car3DInputs(){
   const k=CAR3D_DRIVE.keys;
@@ -1713,6 +1713,9 @@ function stepCar3DDrive(x,dt){
   const steps=Math.max(1,Math.min(8,Math.ceil(dt/0.006)));
   const h=dt/steps;
   for(let i=0;i<steps;i++) stepVehicleSim(S,h,input);
+
+  if(CAR3D_DRIVE.venue==='drag') DragTimer.update(S, dt);
+  else if(CAR3D_DRIVE.venue==='skid') DriftScore.update(S, dt);
 
   pushEngineAudio(S);
   applySimToScene(x,S,dt);
@@ -1818,6 +1821,7 @@ function setRoadScene(x, on){
     x.controls.minPolarAngle = on ? 0.35 : 0.72;
     x.controls.maxPolarAngle = on ? 1.54 : 1.48;
   }
+  if(x.road) x.road.setVenue(CAR3D_DRIVE.venue);
   if(on && x.road && CAR3D_DRIVE.sim) x.road.update(CAR3D_DRIVE.sim.x, CAR3D_DRIVE.sim.z);
   if(!x.loop) renderCar3DOnce(x);
 }
@@ -1841,6 +1845,20 @@ function setCar3DFollow(f){
     if(!following&&S){x.controls.target.set(S.x,.8,S.z);x.controls.update();}
   });
 }
+function setCar3DVenue(v){
+  CAR3D_DRIVE.venue = v;
+  CAR3D_INSTANCES.forEach(x=>{ if(!x.dead && x.road) x.road.setVenue(v); });
+  if(v==='drag') DragTimer.reset();
+  if(v==='skid') DriftScore.reset();
+  /* 換場地一律把車放回起點，不然會卡在場地外面 */
+  resetCar3DDrive();
+  if(typeof toast==='function'){
+    toast(v==='drag'?'直線加速道 — 停在起跑線上，一動就開始計時'
+        : v==='skid'?'甩尾場 — 關循跡防滑、排一檔、滿舵配油門，沿定圓轉'
+        : '一般道路');
+  }
+}
+
 function resetCar3DDrive(){
   const S=CAR3D_DRIVE.sim;
   if(S){

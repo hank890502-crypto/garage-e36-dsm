@@ -657,6 +657,15 @@ const C3I_CSS=`<style>
   font-variant-numeric:tabular-nums;opacity:0;transition:opacity .18s}
 .drive-drift.on{opacity:1}
 .drive-drift b{font-size:17px}
+.venue-panel{position:absolute;top:58px;right:12px;background:rgba(8,14,12,.62);color:#e7f3ee;
+  padding:8px 12px;border-radius:10px;font-size:12px;backdrop-filter:blur(5px);
+  font-variant-numeric:tabular-nums;min-width:152px;display:none;line-height:1.5}
+.venue-panel.on{display:block}
+.venue-panel h5{margin:0 0 5px;font-size:11px;opacity:.7;font-weight:500;letter-spacing:.04em}
+.venue-panel .r{display:flex;justify-content:space-between;gap:12px}
+.venue-panel .r b{color:#7fe3c0;font-weight:600}
+.venue-panel .r.best b{color:#ffd27f}
+.venue-panel .big{font-size:19px;font-weight:600;color:#7fe3c0}
 
 .joy{position:absolute;left:16px;bottom:14px;width:96px;height:96px;border-radius:50%;
   background:rgba(10,16,14,.35);border:1px solid rgba(255,255,255,.28);pointer-events:auto;touch-action:none}
@@ -666,8 +675,8 @@ const C3I_CSS=`<style>
 .pedals button{width:58px;height:58px;border-radius:50%;border:1px solid rgba(255,255,255,.3);
   background:rgba(10,16,14,.45);color:#fff;font-size:12px;touch-action:none;user-select:none;-webkit-user-select:none}
 .pedals button:active,.pedals button.on{background:var(--tech);color:#0a120e}
-.paddles{position:absolute;right:14px;bottom:82px;display:flex;gap:9px;pointer-events:auto}
-.paddles button{width:44px;height:34px;border-radius:8px;border:1px solid rgba(255,255,255,.3);
+.paddles{position:absolute;left:122px;bottom:20px;display:flex;flex-direction:column;gap:8px;pointer-events:auto}
+.paddles button{width:42px;height:36px;border-radius:8px;border:1px solid rgba(255,255,255,.3);
   background:rgba(10,16,14,.45);color:#fff;font-size:15px;user-select:none;-webkit-user-select:none}
 .paddles button:active{background:var(--tech);color:#0a120e}
 </style>`;
@@ -680,6 +689,7 @@ function driveOverlay(){
       <div class="rv"><i id="driveRev"></i></div>
     </div>
     <div class="drive-drift" id="driveDrift">飄移 <b>0</b>°</div>
+    <div class="venue-panel" id="venuePanel"></div>
     <div class="joy" id="c3Joy"><i id="c3JoyKnob"></i></div>
     <div class="paddles">
       <button id="c3Down" type="button" aria-label="降檔" onclick="car3DShift(-1)">−</button>
@@ -723,9 +733,36 @@ function updateDriveHUD(S){
     rb.style.background=p>93?'var(--red)':p>80?'var(--orange)':'var(--tech)';
   }
   const rv2=document.getElementById('c3RpmVal'); if(rv2) rv2.textContent=Math.round(S.rpm);
+  updateVenuePanel(S);
   const gb=document.getElementById('c3GearVal');
   if(gb) gb.textContent=S.gear===0?'N':S.gear<0?'R':String(S.gear);
   const sv=document.getElementById('c3SpeedVal'); if(sv) sv.textContent=Math.round(Math.abs(S.speed));
+}
+
+function updateVenuePanel(S){
+  const el=document.getElementById('venuePanel');
+  if(!el) return;
+  const v=CAR3D_DRIVE.venue;
+  if(v==='road' || !CAR3D_DRIVE.on){ el.classList.remove('on'); return; }
+  el.classList.add('on');
+  const f=t=>t===undefined?'—':t.toFixed(2)+'s';
+  if(v==='drag'){
+    const m=DragTimer.marks, bs=DragTimer.best;
+    el.innerHTML=`<h5>直線加速${DragTimer.running?' · 計時中':DragTimer.armed?' · 待發':''}</h5>`
+      + [['0-60','0–60'],['0-100','0–100'],['0-200','0–200'],
+         ['60ft','60 ft'],['201m','1/8 哩'],['402m','1/4 哩']]
+        .map(([k,lb])=>`<div class="r"><span>${lb}</span><b>${f(m[k])}</b></div>`).join('')
+      + (DragTimer.trap?`<div class="r"><span>終點速度</span><b>${DragTimer.trap.toFixed(0)} km/h</b></div>`:'')
+      + (bs['402m']!==undefined?`<div class="r best"><span>最佳 1/4</span><b>${f(bs['402m'])}</b></div>`
+        : bs['0-100']!==undefined?`<div class="r best"><span>最佳 0–100</span><b>${f(bs['0-100'])}</b></div>`:'');
+  }else if(v==='skid'){
+    const D=DriftScore;
+    el.innerHTML=`<h5>甩尾${D.active?' · 連續中':''}</h5>`
+      + `<div class="r"><span>本次</span><b class="big">${Math.round(D.combo)}</b></div>`
+      + `<div class="r"><span>持續</span><b>${D.comboT.toFixed(1)}s</b></div>`
+      + `<div class="r"><span>最大角度</span><b>${Math.round(D.maxAng)}°</b></div>`
+      + `<div class="r best"><span>最佳</span><b>${Math.round(D.best)}</b></div>`;
+  }
 }
 
 function c3iBar(b){
@@ -766,6 +803,8 @@ function c3iBar(b){
       <div class="c3gear"><span>檔</span><b id="c3GearVal">N</b>
         <span style="margin-left:8px">km/h</span><b id="c3SpeedVal">0</b></div>
       <button class="btn sm tgl ${(S?S.tc!==false:true)?'on':''}" id="c3TC" onclick="c3iTC()">循跡防滑</button>
+      <div class="seg" id="c3Venue">${[['road','道路'],['drag','直線'],['skid','甩尾場']].map(([v,n])=>
+        `<button class="${CAR3D_DRIVE.venue===v?'on':''}" onclick="c3iVenue('${v}')">${n}</button>`).join('')}</div>
       <button class="btn sm tgl ${CAR3D_DRIVE.follow?'on':''}" id="c3Follow" onclick="c3iFollow()">跟隨鏡頭</button>
       <button class="btn sm" onclick="resetCar3DDrive()">回到原點</button>
     </div>
@@ -837,6 +876,12 @@ function afterInteract(){
   bindPedal($('#c3PedalH'),'padHandbrake');
   if(CAR3D_DRIVE.on)$('#stage')?.classList.add('driving');
   updateDriveHUD(CAR3D_DRIVE.sim);
+}
+function c3iVenue(v){
+  setCar3DVenue(v);
+  const seg=$('#c3Venue');
+  if(seg)[...seg.children].forEach((el,i)=>el.classList.toggle('on',['road','drag','skid'][i]===v));
+  updateVenuePanel(CAR3D_DRIVE.sim);
 }
 function c3iTC(){
   const S=ensureSim(); S.tc=(S.tc===false);

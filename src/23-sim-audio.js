@@ -49,6 +49,7 @@ class EngineProcessor extends AudioWorkletProcessor {
       {name:'boost',    defaultValue:0,   minValue:0, maxValue:1,     automationRate:'k-rate'},
       {name:'load',     defaultValue:0,   minValue:0, maxValue:1,     automationRate:'k-rate'},
       {name:'cut',      defaultValue:0,   minValue:0, maxValue:1,     automationRate:'k-rate'},
+      {name:'tRate',    defaultValue:0,   minValue:-20,maxValue:20,    automationRate:'k-rate'},
     ];
   }
 
@@ -72,6 +73,12 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.turbo = 0; this.turboPh = 0;
     this.bov = 0; this.bovF = 0;
     this.pop = 0;
+    /* 油門瞬態與過運轉（overrun）狀態 */
+    this.gulp = 0;        // 開油門瞬間的進氣吸入聲
+    this.chuff = 0;       // 收油門瞬間的排氣悶響
+    this.gulpF = 0;
+    this.lastFireIdx = -1;
+    this.sub = 0;         // 重載時的低頻補強
     /* 每缸固定的個體差異（噴油嘴、壓縮、積碳都會造成），一輩子不變 */
     this.cylBias = new Float32Array(12);
     for(let i=0;i<12;i++) this.cylBias[i] = 0.94+Math.random()*0.12;
@@ -145,6 +152,14 @@ class EngineProcessor extends AudioWorkletProcessor {
     if(!out) return true;
     const rpm = params.rpm[0], thr = params.throttle[0];
     const boost = params.boost[0], load = params.load[0], cut = params.cut[0];
+    const tRate = params.tRate[0];
+
+    /* 油門瞬態：開油門時進氣被大量吸入（那個「呼」的一聲），
+       收油門時節流閥關閉、氣流撞上閥門產生悶響。
+       這是「催油聽起來有沒有生命力」最關鍵的一段 —— 少了它，
+       油門開合就只是音量大小的變化而已。 */
+    if(tRate > 1.2) this.gulp = Math.min(1, this.gulp + tRate*0.05);
+    if(tRate < -1.2) this.chuff = Math.min(1, this.chuff - tRate*0.035);
 
     if(rpm < 1){
       for(let i=0;i<out.length;i++) out[i] = 0;
@@ -156,7 +171,14 @@ class EngineProcessor extends AudioWorkletProcessor {
     const TAU4 = 4*Math.PI;
 
     /* 燃燒強度：油門與增壓決定。斷油時只剩泵氣。 */
-    const burn = cut > 0.5 ? 0.10 : (0.30 + 0.70*thr)*(1 + boost*0.85);
+    /* 燃燒強度同時看油門與「實際負載」。
+       ★ load 這個參數先前只是傳進來、從來沒被用到 ★ 所以引擎在全力拉重載
+       和空檔空轉時音色完全一樣 —— 這是催油聽起來平淡的主因。
+       真實情況是：帶著負載時每次燃燒推的是整台車，缸壓高、排氣脈衝強；
+       空檔補油只是在轉飛輪，聲音薄很多。 */
+    const burn = cut > 0.5 ? 0.10 : (0.22 + 0.55*thr + 0.38*load)*(1 + boost*0.85);
+    /* 過運轉：高轉收油門時未燃燒的混合氣進到排氣管，會不規則地點著 */
+    const overrun = (thr < 0.14 && rpm > 2400 && cut < 0.5);
     /* 管長：延遲取樣數 */
     const dHdr = Math.min(this.maxD-2, Math.floor(this.fs*2*this.hdrL/this.cExh));
     const dPipe= Math.min(this.maxD-2, Math.floor(this.fs*2*this.pipeL/this.cExh));
@@ -179,6 +201,16 @@ class EngineProcessor extends AudioWorkletProcessor {
            太小會回到電子音。直六天生比直四滑順是點火間隔造成的，不靠這裡調。 */
         const j=this.idleJit;
         for(let c=0;c<this.cyl;c++) this.fireSeed[c] = this.cylBias[c]*(1-j+Math.random()*2*j);
+      }
+
+      /* 偵測點火事件：用來讓回火與燃燒週期同步，而不是隨機亂爆。
+         真車放油門的爆音是跟著點火順序來的，隨機觸發一聽就假。 */
+      const fi = (this.theta/(4*Math.PI/this.cyl))|0;
+      if(fi !== this.lastFireIdx){
+        this.lastFireIdx = fi;
+        if(overrun && Math.random() < 0.055 + (rpm/9000)*0.10){
+          this.pop = Math.max(this.pop, 0.25 + Math.random()*0.45);
+        }
       }
 
       /* 所有汽缸的壓力總和 */
@@ -253,16 +285,37 @@ class EngineProcessor extends AudioWorkletProcessor {
         rattleSig = k*(Math.random()*2-1)*rattleAmt;
       }
 
+      /* --- 油門瞬態 --- */
+      let transient = 0;
+      if(this.gulp > 0.0005){
+        /* 進氣吸入：帶通噪音，中心頻率隨轉速上移 */
+        this.gulpF += ((420 + rpm*0.16) - this.gulpF)*0.0009;
+        const gn = Math.random()*2-1;
+        transient += gn*this.gulp*0.30*(0.4 + thr*0.6);
+        this.gulp *= 0.99965;
+      }
+      if(this.chuff > 0.0005){
+        /* 收油門的悶響：低頻為主 */
+        this.sub += ((Math.random()*2-1) - this.sub)*0.06;
+        transient += this.sub*this.chuff*0.42;
+        this.chuff *= 0.9993;
+      }
+
+      /* --- 重載時的低頻補強 ---
+         缸壓高時排氣脈衝的低次諧波明顯增強，這是「有力」的聽感來源 */
+      const lowBoost = exh*load*0.45;
+
       /* --- 混音 --- */
-      let s = exh*1.0 + intake*0.55 + mechNoise + turboSig + rattleSig;
+      let s = exh*1.0 + lowBoost + intake*0.55 + mechNoise + turboSig + rattleSig + transient;
 
       /* 直流阻隔 */
       this.dcy = s - this.dcx + 0.9985*this.dcy;
       this.dcx = s;
       s = this.dcy;
 
-      /* 軟限幅 */
-      out[n] = Math.tanh(s*1.6)*0.62;
+      /* 軟限幅。推進量隨負載提高 —— 重載時排氣本來就更「破」更飽和，
+         這是引擎聽起來在出力而不是在空轉的關鍵。 */
+      out[n] = Math.tanh(s*(1.25 + load*1.5))*0.60;
     }
     return true;
   }
@@ -601,12 +654,32 @@ function engineAudioConfig(S){
 }
 
 /* 每幀把模擬狀態餵給音訊 */
+let _lastThrForAudio = 0, _lastAudioT = 0;
 function pushEngineAudio(S){
   if(!EngineAudio.running || !EngineAudio.node) return;
-  EngineAudio.set('rpm', S.rpm, .012);
-  EngineAudio.set('throttle', S.throttle, .02);
+  const now = performance.now()/1000;
+  const dt = Math.max(0.004, Math.min(0.2, _lastAudioT ? now-_lastAudioT : 0.016));
+  _lastAudioT = now;
+  /* 油門變化率：開合的「速度」決定瞬態強度。
+     慢慢踩和一腳踹到底，聲音應該是不一樣的。 */
+  const tRate = (S.throttle - _lastThrForAudio)/dt;
+  _lastThrForAudio = S.throttle;
+
+  /* 引擎負載：不能只看加速度（空檔補油時加速度是 0，但引擎確實在出力）。
+     用「離合器實際傳出去的扭力佔引擎能力的比例」來估，
+     空檔時退回用轉速上升率，這樣空檔補油也有負載感。 */
+  let load;
+  if(S.gear !== 0 && Math.abs(S.vx) > 1){
+    load = Math.min(1, Math.abs(S.gForce)/5.2*0.75 + S.throttle*0.35);
+  }else{
+    load = Math.min(1, S.throttle*0.55);
+  }
+
+  EngineAudio.set('rpm', S.rpm, .008);
+  EngineAudio.set('throttle', S.throttle, .015);
   EngineAudio.set('boost', S.boost, .04);
-  EngineAudio.set('load', Math.min(1, Math.abs(S.gForce)/6), .05);
+  EngineAudio.set('load', load, .05);
+  EngineAudio.set('tRate', Math.max(-20, Math.min(20, tRate)), .004);
   EngineAudio.set('cut', (S.fuelCut||S.starter>0)?1:0, .003);
 }
 

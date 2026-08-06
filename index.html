@@ -4211,6 +4211,7 @@ class EngineProcessor extends AudioWorkletProcessor {
       {name:'boost',    defaultValue:0,   minValue:0, maxValue:1,     automationRate:'k-rate'},
       {name:'load',     defaultValue:0,   minValue:0, maxValue:1,     automationRate:'k-rate'},
       {name:'cut',      defaultValue:0,   minValue:0, maxValue:1,     automationRate:'k-rate'},
+      {name:'tRate',    defaultValue:0,   minValue:-20,maxValue:20,    automationRate:'k-rate'},
     ];
   }
 
@@ -4234,6 +4235,12 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.turbo = 0; this.turboPh = 0;
     this.bov = 0; this.bovF = 0;
     this.pop = 0;
+    /* 油門瞬態與過運轉（overrun）狀態 */
+    this.gulp = 0;        // 開油門瞬間的進氣吸入聲
+    this.chuff = 0;       // 收油門瞬間的排氣悶響
+    this.gulpF = 0;
+    this.lastFireIdx = -1;
+    this.sub = 0;         // 重載時的低頻補強
     /* 每缸固定的個體差異（噴油嘴、壓縮、積碳都會造成），一輩子不變 */
     this.cylBias = new Float32Array(12);
     for(let i=0;i<12;i++) this.cylBias[i] = 0.94+Math.random()*0.12;
@@ -4307,6 +4314,14 @@ class EngineProcessor extends AudioWorkletProcessor {
     if(!out) return true;
     const rpm = params.rpm[0], thr = params.throttle[0];
     const boost = params.boost[0], load = params.load[0], cut = params.cut[0];
+    const tRate = params.tRate[0];
+
+    /* 油門瞬態：開油門時進氣被大量吸入（那個「呼」的一聲），
+       收油門時節流閥關閉、氣流撞上閥門產生悶響。
+       這是「催油聽起來有沒有生命力」最關鍵的一段 —— 少了它，
+       油門開合就只是音量大小的變化而已。 */
+    if(tRate > 1.2) this.gulp = Math.min(1, this.gulp + tRate*0.05);
+    if(tRate < -1.2) this.chuff = Math.min(1, this.chuff - tRate*0.035);
 
     if(rpm < 1){
       for(let i=0;i<out.length;i++) out[i] = 0;
@@ -4318,7 +4333,14 @@ class EngineProcessor extends AudioWorkletProcessor {
     const TAU4 = 4*Math.PI;
 
     /* 燃燒強度：油門與增壓決定。斷油時只剩泵氣。 */
-    const burn = cut > 0.5 ? 0.10 : (0.30 + 0.70*thr)*(1 + boost*0.85);
+    /* 燃燒強度同時看油門與「實際負載」。
+       ★ load 這個參數先前只是傳進來、從來沒被用到 ★ 所以引擎在全力拉重載
+       和空檔空轉時音色完全一樣 —— 這是催油聽起來平淡的主因。
+       真實情況是：帶著負載時每次燃燒推的是整台車，缸壓高、排氣脈衝強；
+       空檔補油只是在轉飛輪，聲音薄很多。 */
+    const burn = cut > 0.5 ? 0.10 : (0.22 + 0.55*thr + 0.38*load)*(1 + boost*0.85);
+    /* 過運轉：高轉收油門時未燃燒的混合氣進到排氣管，會不規則地點著 */
+    const overrun = (thr < 0.14 && rpm > 2400 && cut < 0.5);
     /* 管長：延遲取樣數 */
     const dHdr = Math.min(this.maxD-2, Math.floor(this.fs*2*this.hdrL/this.cExh));
     const dPipe= Math.min(this.maxD-2, Math.floor(this.fs*2*this.pipeL/this.cExh));
@@ -4341,6 +4363,16 @@ class EngineProcessor extends AudioWorkletProcessor {
            太小會回到電子音。直六天生比直四滑順是點火間隔造成的，不靠這裡調。 */
         const j=this.idleJit;
         for(let c=0;c<this.cyl;c++) this.fireSeed[c] = this.cylBias[c]*(1-j+Math.random()*2*j);
+      }
+
+      /* 偵測點火事件：用來讓回火與燃燒週期同步，而不是隨機亂爆。
+         真車放油門的爆音是跟著點火順序來的，隨機觸發一聽就假。 */
+      const fi = (this.theta/(4*Math.PI/this.cyl))|0;
+      if(fi !== this.lastFireIdx){
+        this.lastFireIdx = fi;
+        if(overrun && Math.random() < 0.055 + (rpm/9000)*0.10){
+          this.pop = Math.max(this.pop, 0.25 + Math.random()*0.45);
+        }
       }
 
       /* 所有汽缸的壓力總和 */
@@ -4415,16 +4447,37 @@ class EngineProcessor extends AudioWorkletProcessor {
         rattleSig = k*(Math.random()*2-1)*rattleAmt;
       }
 
+      /* --- 油門瞬態 --- */
+      let transient = 0;
+      if(this.gulp > 0.0005){
+        /* 進氣吸入：帶通噪音，中心頻率隨轉速上移 */
+        this.gulpF += ((420 + rpm*0.16) - this.gulpF)*0.0009;
+        const gn = Math.random()*2-1;
+        transient += gn*this.gulp*0.30*(0.4 + thr*0.6);
+        this.gulp *= 0.99965;
+      }
+      if(this.chuff > 0.0005){
+        /* 收油門的悶響：低頻為主 */
+        this.sub += ((Math.random()*2-1) - this.sub)*0.06;
+        transient += this.sub*this.chuff*0.42;
+        this.chuff *= 0.9993;
+      }
+
+      /* --- 重載時的低頻補強 ---
+         缸壓高時排氣脈衝的低次諧波明顯增強，這是「有力」的聽感來源 */
+      const lowBoost = exh*load*0.45;
+
       /* --- 混音 --- */
-      let s = exh*1.0 + intake*0.55 + mechNoise + turboSig + rattleSig;
+      let s = exh*1.0 + lowBoost + intake*0.55 + mechNoise + turboSig + rattleSig + transient;
 
       /* 直流阻隔 */
       this.dcy = s - this.dcx + 0.9985*this.dcy;
       this.dcx = s;
       s = this.dcy;
 
-      /* 軟限幅 */
-      out[n] = Math.tanh(s*1.6)*0.62;
+      /* 軟限幅。推進量隨負載提高 —— 重載時排氣本來就更「破」更飽和，
+         這是引擎聽起來在出力而不是在空轉的關鍵。 */
+      out[n] = Math.tanh(s*(1.25 + load*1.5))*0.60;
     }
     return true;
   }
@@ -4763,12 +4816,32 @@ function engineAudioConfig(S){
 }
 
 /* 每幀把模擬狀態餵給音訊 */
+let _lastThrForAudio = 0, _lastAudioT = 0;
 function pushEngineAudio(S){
   if(!EngineAudio.running || !EngineAudio.node) return;
-  EngineAudio.set('rpm', S.rpm, .012);
-  EngineAudio.set('throttle', S.throttle, .02);
+  const now = performance.now()/1000;
+  const dt = Math.max(0.004, Math.min(0.2, _lastAudioT ? now-_lastAudioT : 0.016));
+  _lastAudioT = now;
+  /* 油門變化率：開合的「速度」決定瞬態強度。
+     慢慢踩和一腳踹到底，聲音應該是不一樣的。 */
+  const tRate = (S.throttle - _lastThrForAudio)/dt;
+  _lastThrForAudio = S.throttle;
+
+  /* 引擎負載：不能只看加速度（空檔補油時加速度是 0，但引擎確實在出力）。
+     用「離合器實際傳出去的扭力佔引擎能力的比例」來估，
+     空檔時退回用轉速上升率，這樣空檔補油也有負載感。 */
+  let load;
+  if(S.gear !== 0 && Math.abs(S.vx) > 1){
+    load = Math.min(1, Math.abs(S.gForce)/5.2*0.75 + S.throttle*0.35);
+  }else{
+    load = Math.min(1, S.throttle*0.55);
+  }
+
+  EngineAudio.set('rpm', S.rpm, .008);
+  EngineAudio.set('throttle', S.throttle, .015);
   EngineAudio.set('boost', S.boost, .04);
-  EngineAudio.set('load', Math.min(1, Math.abs(S.gForce)/6), .05);
+  EngineAudio.set('load', load, .05);
+  EngineAudio.set('tRate', Math.max(-20, Math.min(20, tRate)), .004);
   EngineAudio.set('cut', (S.fuelCut||S.starter>0)?1:0, .003);
 }
 
@@ -4899,6 +4972,148 @@ function makeRoadTexture(THREE, night){
   return tex;
 }
 
+
+/* ==========================================================================
+   練車場地
+   --------------------------------------------------------------------------
+   三種場地共用同一套「跟著車走」的機制，只是路面貼圖與周邊物件不同：
+     road  一般道路（雙向四線道，依台灣法規標線）
+     drag  直線加速道：起跑線 + 距離標記，配計時器
+     skid  甩尾場：大片柏油 + 定圓標線 + 三角錐，配甩尾計分
+   ========================================================================== */
+
+/* 直線加速道的貼圖：兩線道、無對向、每 10 m 一個週期 */
+function makeDragTexture(THREE, night){
+  const P = ROAD.ppm;
+  const W = Math.round(ROAD.tileL*P), H = Math.round(ROAD.texSpanZ*P);
+  const cv = document.createElement('canvas');
+  cv.width=W; cv.height=H;
+  const g = cv.getContext('2d'), m2px=m=>m*P, midH=H/2;
+  g.fillStyle = night?'#161c16':'#5a6647'; g.fillRect(0,0,W,H);
+  const halfRoad = 9;                       // 18 m 寬，兩個大車道
+  g.fillStyle = night?'#26272a':'#3f4144';  // 賽道柏油偏深
+  g.fillRect(0, midH-m2px(halfRoad), W, m2px(halfRoad*2));
+  for(let i=0;i<2600;i++){
+    const y = midH-m2px(halfRoad)+Math.random()*m2px(halfRoad*2);
+    g.fillStyle = Math.random()>.5?'rgba(255,255,255,.028)':'rgba(0,0,0,.05)';
+    g.fillRect(Math.random()*W, y, 1.6, 1.6);
+  }
+  /* 中央分道虛線 + 兩側邊線 */
+  const white = night?'#c8ccc4':'#f0f2ec';
+  g.fillStyle = white;
+  g.fillRect(0, midH-m2px(0.06), m2px(4), m2px(0.12));
+  [-1,1].forEach(sd=>g.fillRect(0, midH+m2px(sd*halfRoad)-m2px(sd>0?0.15:0), W, m2px(0.15)));
+  const tex=new THREE.CanvasTexture(cv);
+  tex.wrapS=THREE.RepeatWrapping; tex.wrapT=THREE.ClampToEdgeWrapping;
+  tex.repeat.set(ROAD.roadLen/ROAD.tileL,1);
+  tex.anisotropy=8; tex.colorSpace=THREE.SRGBColorSpace;
+  return tex;
+}
+
+/* 甩尾場貼圖：一大片柏油 + 定圓 */
+function makeSkidTexture(THREE, night){
+  const S = 1024, PAD = 170;                // 貼圖像素、實際邊長（公尺）
+  const cv=document.createElement('canvas'); cv.width=S; cv.height=S;
+  const g=cv.getContext('2d'), px=m=>m/PAD*S, c=S/2;
+  g.fillStyle = night?'#161c16':'#5a6647'; g.fillRect(0,0,S,S);
+  /* 柏油場地 */
+  g.fillStyle = night?'#232529':'#424447';
+  g.fillRect(px(PAD/2-55), px(PAD/2-55), px(110), px(110));
+  for(let i=0;i<9000;i++){
+    g.fillStyle = Math.random()>.5?'rgba(255,255,255,.022)':'rgba(0,0,0,.045)';
+    g.fillRect(px(PAD/2-55)+Math.random()*px(110), px(PAD/2-55)+Math.random()*px(110),2,2);
+  }
+  /* 胎痕：練甩尾的場地一定有一圈黑掉的軌跡 */
+  g.strokeStyle='rgba(0,0,0,.30)';
+  for(let i=0;i<26;i++){
+    g.lineWidth=px(0.35+Math.random()*0.5);
+    g.beginPath();
+    g.arc(c,c,px(17+Math.random()*7),Math.random()*6.28,Math.random()*6.28+2.4);
+    g.stroke();
+  }
+  /* 定圓標線：內圈 20 m 半徑、外圈 30 m */
+  g.strokeStyle = night?'#c0c4bc':'#f2f4ee';
+  g.lineWidth=px(0.10); g.beginPath(); g.arc(c,c,px(20),0,6.2832); g.stroke();
+  g.lineWidth=px(0.10); g.beginPath(); g.arc(c,c,px(30),0,6.2832); g.stroke();
+  /* 場地邊線 */
+  g.lineWidth=px(0.15);
+  g.strokeRect(px(PAD/2-55),px(PAD/2-55),px(110),px(110));
+  const tex=new THREE.CanvasTexture(cv);
+  tex.wrapS=tex.wrapT=THREE.ClampToEdgeWrapping;
+  tex.anisotropy=8; tex.colorSpace=THREE.SRGBColorSpace;
+  return {tex, pad:PAD};
+}
+
+/* --------------------------------------------------------------------------
+   直線加速計時
+   --------------------------------------------------------------------------
+   自動判斷起跑：車停下來就重新武裝，一動就開始計時。
+   量測點沿用實務慣例：60 ft（18.288 m）、1/8 mile（201.168 m）、
+   1/4 mile（402.336 m），以及 0–60 / 0–100 / 0–200 km/h。
+   -------------------------------------------------------------------------- */
+const DragTimer = {
+  armed:false, running:false, t:0, x0:0, marks:{}, best:{}, trap:0,
+  SPEEDS:[60,100,200],
+  DISTS:[['60ft',18.288],['201m',201.168],['402m',402.336]],
+  reset(){ this.armed=false; this.running=false; this.t=0; this.marks={}; this.trap=0; },
+  update(S, dt){
+    const kph = Math.abs(S.speed);
+    if(!this.running && kph < 1.2){ this.armed = true; this.marks={}; this.trap=0; }
+    if(this.armed && !this.running && kph > 1.5){
+      this.running=true; this.armed=false; this.t=0; this.x0=S.x; this.marks={};
+    }
+    if(!this.running) return;
+    this.t += dt;
+    const dist = Math.abs(S.x - this.x0);
+    this.SPEEDS.forEach(v=>{
+      const k='0-'+v;
+      if(this.marks[k]===undefined && kph>=v){
+        this.marks[k]=this.t;
+        if(this.best[k]===undefined || this.t<this.best[k]) this.best[k]=this.t;
+      }
+    });
+    this.DISTS.forEach(([k,d])=>{
+      if(this.marks[k]===undefined && dist>=d){
+        this.marks[k]=this.t;
+        if(k==='402m') this.trap=kph;
+        if(this.best[k]===undefined || this.t<this.best[k]) this.best[k]=this.t;
+      }
+    });
+    /* 跑完 402 m 或停下來就結束這一趟 */
+    if(dist>420 || (kph<1.2 && this.t>2)) this.running=false;
+  },
+};
+
+/* --------------------------------------------------------------------------
+   甩尾計分
+   --------------------------------------------------------------------------
+   連續段（combo）：滑移角維持在 15 度以上且車速夠快就持續累積，
+   角度越大、時間越長分數越高。掉出來超過 0.7 秒才算結束。
+   -------------------------------------------------------------------------- */
+const DriftScore = {
+  combo:0, comboT:0, maxAng:0, grace:0, best:0, bestT:0, active:false,
+  reset(){ this.combo=0; this.comboT=0; this.maxAng=0; this.grace=0; this.active=false; },
+  update(S, dt){
+    const a = Math.abs(S.drift), kph = Math.abs(S.speed);
+    /* 門檻設在 12 度／12 km/h：定圓甩尾（一檔滿舵）本來就是低速動作，
+       門檻訂太高會讓最典型的練習項目完全不計分。 */
+    const ok = a >= 12 && kph >= 12;
+    if(ok){
+      this.active=true; this.grace=0.7;
+      this.comboT += dt; this.maxAng = Math.max(this.maxAng, a);
+      /* 角度越接近 45 度給分越高，超過 70 度視為快打轉了，倍率下降 */
+      const q = a<=45 ? a/45 : Math.max(0.25, 1-(a-45)/40);
+      this.combo += q * (0.45 + kph/70) * dt * 100;
+    }else if(this.active){
+      this.grace -= dt;
+      if(this.grace<=0){
+        if(this.combo>this.best){ this.best=this.combo; this.bestT=this.comboT; }
+        this.combo=0; this.comboT=0; this.maxAng=0; this.active=false;
+      }
+    }
+  },
+};
+
 /* --------------------------------------------------------------------------
    天空：上下漸層的內面球
    -------------------------------------------------------------------------- */
@@ -4935,14 +5150,65 @@ function buildRoadScene(THREE, scene, night){
   const grp = new THREE.Group();
   grp.name = 'roadScene';
 
-  /* ---- 路面 ---- */
-  const roadTex = makeRoadTexture(THREE, night);
-  const roadMat = new THREE.MeshStandardMaterial({map:roadTex, roughness:.94, metalness:0});
+  /* ---- 路面（一般道路 / 直線加速道共用同一塊，只換貼圖）---- */
+  const roadMat = new THREE.MeshStandardMaterial({map:makeRoadTexture(THREE,night), roughness:.94, metalness:0});
   const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD.roadLen, ROAD.texSpanZ), roadMat);
   road.rotation.x = -Math.PI/2;
   road.position.y = 0.02;
   road.receiveShadow = true;
   grp.add(road);
+
+  /* ---- 甩尾場：獨立一塊大柏油 ---- */
+  const skidSrc = makeSkidTexture(THREE, night);
+  const skidMat = new THREE.MeshStandardMaterial({map:skidSrc.tex, roughness:.93, metalness:0});
+  const skid = new THREE.Mesh(new THREE.PlaneGeometry(skidSrc.pad, skidSrc.pad), skidMat);
+  skid.rotation.x = -Math.PI/2;
+  skid.position.y = 0.02;
+  skid.receiveShadow = true;
+  skid.visible = false;
+  grp.add(skid);
+
+  /* ---- 三角錐：甩尾場用，繞定圓排一圈 ---- */
+  const coneGeo = new THREE.ConeGeometry(0.22, 0.55, 10);
+  const coneMat = new THREE.MeshStandardMaterial({color:0xff6a1f, roughness:.75,
+    emissive:0xff4400, emissiveIntensity:night?0.5:0.05});
+  const CONE_N = 24;
+  const cones = new THREE.InstancedMesh(coneGeo, coneMat, CONE_N);
+  cones.visible = false;
+  grp.add(cones);
+  {
+    const d = new THREE.Object3D();
+    for(let i=0;i<CONE_N;i++){
+      const a = i/CONE_N*Math.PI*2;
+      d.position.set(Math.cos(a)*25, 0.28, Math.sin(a)*25);
+      d.rotation.set(0,0,0); d.updateMatrix();
+      cones.setMatrixAt(i, d.matrix);
+    }
+    cones.instanceMatrix.needsUpdate = true;
+  }
+
+  /* ---- 直線加速道的距離標記牌 ---- */
+  const markGrp = new THREE.Group();
+  markGrp.visible = false;
+  grp.add(markGrp);
+  const markMat = new THREE.MeshStandardMaterial({color:0xf2f4ee, roughness:.8});
+  const markPost = new THREE.MeshStandardMaterial({color:0x5a6166, roughness:.7, metalness:.4});
+  [[18.288,'60ft'],[100,'100'],[201.168,'1/8'],[300,'300'],[402.336,'1/4']].forEach(([d])=>{
+    [-1,1].forEach(sd=>{
+      const p2 = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,2.2,6), markPost);
+      p2.position.set(-d, 1.1, sd*11.5);      // 車頭朝 −X，所以往 −X 方向排
+      markGrp.add(p2);
+      const bd = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.9,1.5), markMat);
+      bd.position.set(-d, 2.4, sd*11.5);
+      markGrp.add(bd);
+    });
+  });
+  /* 起跑線 */
+  const startLine = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 18),
+    new THREE.MeshStandardMaterial({color:0xf5f7f2, roughness:.8}));
+  startLine.rotation.x = -Math.PI/2; startLine.rotation.z = Math.PI/2;
+  startLine.position.set(0, 0.03, 0);
+  markGrp.add(startLine);
 
   /* ---- 遠處的地面：比貼圖範圍更大的一塊素色地，避免看到邊界 ---- */
   const groundMat = new THREE.MeshStandardMaterial({
@@ -5004,7 +5270,24 @@ function buildRoadScene(THREE, scene, night){
 
   /* ---- 每幀更新：把整組東西跟著車移動 ---- */
   const dummy = new THREE.Object3D();
-  const state = {night, builtNight:night};
+  const state = {night, builtNight:night, venue:'road'};
+
+  function layoutSkid(){
+    posts.count = 0; refs.count = 0;
+    posts.instanceMatrix.needsUpdate = true;
+    refs.instanceMatrix.needsUpdate = true;
+    for(let i=0;i<poleN;i++){
+      /* 甩尾場四角各一盞燈 */
+      const a = i<4 ? i/4*Math.PI*2 + Math.PI/4 : 0;
+      dummy.position.set(i<4?Math.cos(a)*62:0, i<4?4.1:-99, i<4?Math.sin(a)*62:0);
+      dummy.rotation.set(0,0,0); dummy.updateMatrix();
+      poles.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(i<4?Math.cos(a)*61:0, i<4?8.15:-99, i<4?Math.sin(a)*61:0);
+      dummy.updateMatrix(); heads.setMatrixAt(i, dummy.matrix);
+    }
+    poles.instanceMatrix.needsUpdate = true;
+    heads.instanceMatrix.needsUpdate = true;
+  }
 
   function layout(carX, carZ){
     /* 路面沿 X 對齊標線週期，這樣標線不會抖動 */
@@ -5012,6 +5295,8 @@ function buildRoadScene(THREE, scene, night){
     ground.position.x = carX; ground.position.z = carZ;
     hills.position.set(carX, 0, carZ);
     sky.position.set(carX, 0, carZ);
+    /* 甩尾場是固定的一塊場地，不跟著車跑（不然定圓就沒有意義了） */
+    if(state.venue==='skid') return layoutSkid();
 
     const zOut = ROAD.roadW/2 + ROAD.shoulder + 0.6;
     const base = Math.floor((carX - ROAD.roadLen/2)/ROAD.postGap)*ROAD.postGap;
@@ -5048,16 +5333,40 @@ function buildRoadScene(THREE, scene, night){
 
   layout(0,0);
 
+  function setVenue(v){
+    state.venue = v;
+    road.visible = (v==='road' || v==='drag');
+    skid.visible = (v==='skid');
+    cones.visible = (v==='skid');
+    markGrp.visible = (v==='drag');
+    if(v==='drag' && roadMat.userData.kind!=='drag'){
+      roadMat.map.dispose(); roadMat.map = makeDragTexture(THREE, state.builtNight);
+      roadMat.userData.kind='drag'; roadMat.needsUpdate=true;
+    }else if(v==='road' && roadMat.userData.kind!=='road'){
+      roadMat.map.dispose(); roadMat.map = makeRoadTexture(THREE, state.builtNight);
+      roadMat.userData.kind='road'; roadMat.needsUpdate=true;
+    }
+    if(v==='drag') DragTimer.reset();
+    if(v==='skid') DriftScore.reset();
+  }
+  roadMat.userData.kind='road';
+
   return {
     group: grp,
     update: layout,
+    setVenue,
+    get venue(){ return state.venue; },
     /* 日夜切換：貼圖與材質重畫 */
     setNight(n){
       if(state.builtNight === n) return;
       state.builtNight = n;
       roadMat.map.dispose();
-      roadMat.map = makeRoadTexture(THREE, n);
+      roadMat.map = roadMat.userData.kind==='drag' ? makeDragTexture(THREE,n) : makeRoadTexture(THREE,n);
       roadMat.needsUpdate = true;
+      skidMat.map.dispose();
+      skidMat.map = makeSkidTexture(THREE,n).tex;
+      skidMat.needsUpdate = true;
+      coneMat.emissiveIntensity = n?0.5:0.05;
       groundMat.color.setHex(n?0x141a15:0x59634a);
       hillMat.color.setHex(n?0x0e1512:0x4a5747);
       postMat.color.setHex(n?0xb8b8ae:0xe8e8e0);
@@ -7040,7 +7349,7 @@ setInterval(()=>{
    的俯仰，兩邊混用會互相干擾）。輪組自轉只轉 makeWheel 的 spin 子群組。
    ========================================================================== */
 const CAR3D_DRIVE={on:false,follow:false,keys:{},joySteer:0,joyThrottle:0,
-  padThrottle:0,padBrake:0,padHandbrake:0,sim:null,hudAt:0};
+  padThrottle:0,padBrake:0,padHandbrake:0,sim:null,hudAt:0,venue:'road'};
 
 function car3DInputs(){
   const k=CAR3D_DRIVE.keys;
@@ -7102,6 +7411,9 @@ function stepCar3DDrive(x,dt){
   const steps=Math.max(1,Math.min(8,Math.ceil(dt/0.006)));
   const h=dt/steps;
   for(let i=0;i<steps;i++) stepVehicleSim(S,h,input);
+
+  if(CAR3D_DRIVE.venue==='drag') DragTimer.update(S, dt);
+  else if(CAR3D_DRIVE.venue==='skid') DriftScore.update(S, dt);
 
   pushEngineAudio(S);
   applySimToScene(x,S,dt);
@@ -7207,6 +7519,7 @@ function setRoadScene(x, on){
     x.controls.minPolarAngle = on ? 0.35 : 0.72;
     x.controls.maxPolarAngle = on ? 1.54 : 1.48;
   }
+  if(x.road) x.road.setVenue(CAR3D_DRIVE.venue);
   if(on && x.road && CAR3D_DRIVE.sim) x.road.update(CAR3D_DRIVE.sim.x, CAR3D_DRIVE.sim.z);
   if(!x.loop) renderCar3DOnce(x);
 }
@@ -7230,6 +7543,20 @@ function setCar3DFollow(f){
     if(!following&&S){x.controls.target.set(S.x,.8,S.z);x.controls.update();}
   });
 }
+function setCar3DVenue(v){
+  CAR3D_DRIVE.venue = v;
+  CAR3D_INSTANCES.forEach(x=>{ if(!x.dead && x.road) x.road.setVenue(v); });
+  if(v==='drag') DragTimer.reset();
+  if(v==='skid') DriftScore.reset();
+  /* 換場地一律把車放回起點，不然會卡在場地外面 */
+  resetCar3DDrive();
+  if(typeof toast==='function'){
+    toast(v==='drag'?'直線加速道 — 停在起跑線上，一動就開始計時'
+        : v==='skid'?'甩尾場 — 關循跡防滑、排一檔、滿舵配油門，沿定圓轉'
+        : '一般道路');
+  }
+}
+
 function resetCar3DDrive(){
   const S=CAR3D_DRIVE.sim;
   if(S){
@@ -8460,6 +8787,15 @@ const C3I_CSS=`<style>
   font-variant-numeric:tabular-nums;opacity:0;transition:opacity .18s}
 .drive-drift.on{opacity:1}
 .drive-drift b{font-size:17px}
+.venue-panel{position:absolute;top:58px;right:12px;background:rgba(8,14,12,.62);color:#e7f3ee;
+  padding:8px 12px;border-radius:10px;font-size:12px;backdrop-filter:blur(5px);
+  font-variant-numeric:tabular-nums;min-width:152px;display:none;line-height:1.5}
+.venue-panel.on{display:block}
+.venue-panel h5{margin:0 0 5px;font-size:11px;opacity:.7;font-weight:500;letter-spacing:.04em}
+.venue-panel .r{display:flex;justify-content:space-between;gap:12px}
+.venue-panel .r b{color:#7fe3c0;font-weight:600}
+.venue-panel .r.best b{color:#ffd27f}
+.venue-panel .big{font-size:19px;font-weight:600;color:#7fe3c0}
 
 .joy{position:absolute;left:16px;bottom:14px;width:96px;height:96px;border-radius:50%;
   background:rgba(10,16,14,.35);border:1px solid rgba(255,255,255,.28);pointer-events:auto;touch-action:none}
@@ -8469,8 +8805,8 @@ const C3I_CSS=`<style>
 .pedals button{width:58px;height:58px;border-radius:50%;border:1px solid rgba(255,255,255,.3);
   background:rgba(10,16,14,.45);color:#fff;font-size:12px;touch-action:none;user-select:none;-webkit-user-select:none}
 .pedals button:active,.pedals button.on{background:var(--tech);color:#0a120e}
-.paddles{position:absolute;right:14px;bottom:82px;display:flex;gap:9px;pointer-events:auto}
-.paddles button{width:44px;height:34px;border-radius:8px;border:1px solid rgba(255,255,255,.3);
+.paddles{position:absolute;left:122px;bottom:20px;display:flex;flex-direction:column;gap:8px;pointer-events:auto}
+.paddles button{width:42px;height:36px;border-radius:8px;border:1px solid rgba(255,255,255,.3);
   background:rgba(10,16,14,.45);color:#fff;font-size:15px;user-select:none;-webkit-user-select:none}
 .paddles button:active{background:var(--tech);color:#0a120e}
 </style>`;
@@ -8483,6 +8819,7 @@ function driveOverlay(){
       <div class="rv"><i id="driveRev"></i></div>
     </div>
     <div class="drive-drift" id="driveDrift">飄移 <b>0</b>°</div>
+    <div class="venue-panel" id="venuePanel"></div>
     <div class="joy" id="c3Joy"><i id="c3JoyKnob"></i></div>
     <div class="paddles">
       <button id="c3Down" type="button" aria-label="降檔" onclick="car3DShift(-1)">−</button>
@@ -8526,9 +8863,36 @@ function updateDriveHUD(S){
     rb.style.background=p>93?'var(--red)':p>80?'var(--orange)':'var(--tech)';
   }
   const rv2=document.getElementById('c3RpmVal'); if(rv2) rv2.textContent=Math.round(S.rpm);
+  updateVenuePanel(S);
   const gb=document.getElementById('c3GearVal');
   if(gb) gb.textContent=S.gear===0?'N':S.gear<0?'R':String(S.gear);
   const sv=document.getElementById('c3SpeedVal'); if(sv) sv.textContent=Math.round(Math.abs(S.speed));
+}
+
+function updateVenuePanel(S){
+  const el=document.getElementById('venuePanel');
+  if(!el) return;
+  const v=CAR3D_DRIVE.venue;
+  if(v==='road' || !CAR3D_DRIVE.on){ el.classList.remove('on'); return; }
+  el.classList.add('on');
+  const f=t=>t===undefined?'—':t.toFixed(2)+'s';
+  if(v==='drag'){
+    const m=DragTimer.marks, bs=DragTimer.best;
+    el.innerHTML=`<h5>直線加速${DragTimer.running?' · 計時中':DragTimer.armed?' · 待發':''}</h5>`
+      + [['0-60','0–60'],['0-100','0–100'],['0-200','0–200'],
+         ['60ft','60 ft'],['201m','1/8 哩'],['402m','1/4 哩']]
+        .map(([k,lb])=>`<div class="r"><span>${lb}</span><b>${f(m[k])}</b></div>`).join('')
+      + (DragTimer.trap?`<div class="r"><span>終點速度</span><b>${DragTimer.trap.toFixed(0)} km/h</b></div>`:'')
+      + (bs['402m']!==undefined?`<div class="r best"><span>最佳 1/4</span><b>${f(bs['402m'])}</b></div>`
+        : bs['0-100']!==undefined?`<div class="r best"><span>最佳 0–100</span><b>${f(bs['0-100'])}</b></div>`:'');
+  }else if(v==='skid'){
+    const D=DriftScore;
+    el.innerHTML=`<h5>甩尾${D.active?' · 連續中':''}</h5>`
+      + `<div class="r"><span>本次</span><b class="big">${Math.round(D.combo)}</b></div>`
+      + `<div class="r"><span>持續</span><b>${D.comboT.toFixed(1)}s</b></div>`
+      + `<div class="r"><span>最大角度</span><b>${Math.round(D.maxAng)}°</b></div>`
+      + `<div class="r best"><span>最佳</span><b>${Math.round(D.best)}</b></div>`;
+  }
 }
 
 function c3iBar(b){
@@ -8569,6 +8933,8 @@ function c3iBar(b){
       <div class="c3gear"><span>檔</span><b id="c3GearVal">N</b>
         <span style="margin-left:8px">km/h</span><b id="c3SpeedVal">0</b></div>
       <button class="btn sm tgl ${(S?S.tc!==false:true)?'on':''}" id="c3TC" onclick="c3iTC()">循跡防滑</button>
+      <div class="seg" id="c3Venue">${[['road','道路'],['drag','直線'],['skid','甩尾場']].map(([v,n])=>
+        `<button class="${CAR3D_DRIVE.venue===v?'on':''}" onclick="c3iVenue('${v}')">${n}</button>`).join('')}</div>
       <button class="btn sm tgl ${CAR3D_DRIVE.follow?'on':''}" id="c3Follow" onclick="c3iFollow()">跟隨鏡頭</button>
       <button class="btn sm" onclick="resetCar3DDrive()">回到原點</button>
     </div>
@@ -8640,6 +9006,12 @@ function afterInteract(){
   bindPedal($('#c3PedalH'),'padHandbrake');
   if(CAR3D_DRIVE.on)$('#stage')?.classList.add('driving');
   updateDriveHUD(CAR3D_DRIVE.sim);
+}
+function c3iVenue(v){
+  setCar3DVenue(v);
+  const seg=$('#c3Venue');
+  if(seg)[...seg.children].forEach((el,i)=>el.classList.toggle('on',['road','drag','skid'][i]===v));
+  updateVenuePanel(CAR3D_DRIVE.sim);
 }
 function c3iTC(){
   const S=ensureSim(); S.tc=(S.tc===false);
