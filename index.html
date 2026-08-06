@@ -3818,7 +3818,9 @@ function shiftTo(S, g){
   g = Math.max(-1, Math.min(n, g|0));
   if(g===S.gear || S.shifting>0) return;
   S.shiftFrom = S.gear;
+  const dir = g>S.gear ? 1 : -1;
   S.gear = g;
+  if(typeof EngineAudio!=='undefined' && EngineAudio.running) EngineAudio.shift(dir);
   /* 換檔時間：自排較長且不完全斷離合，手排短而乾脆 */
   S.shifting = S.cfg.auto ? .30 : .16;
   S.lastShift = g;
@@ -4149,7 +4151,7 @@ class EngineProcessor extends AudioWorkletProcessor {
 
   setup(o){
     this.cyl = Math.max(1, Math.min(12, o.cylinders|0 || 4));
-    /* 四行程：一個完整循環 720 度 = 4π。等間隔點火。 */
+    /* 四行程：一個完整循環 720 度 = 4π。直四與直六都是等間隔點火。 */
     this.fire = new Float32Array(this.cyl);
     for(let i=0;i<this.cyl;i++) this.fire[i] = i*(4*Math.PI/this.cyl);
     /* 排氣管長度（公尺）→ 延遲取樣數。尾段設定會改變這個值。 */
@@ -4162,6 +4164,20 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.cExh = 480; this.cAir = 343;
     this.damp = o.damp!==undefined ? o.damp : 0.34;
     this.refl = o.reflect!==undefined ? o.reflect : 0.74;
+    /* ---- 每具引擎的個性參數 ---- */
+    this.intakeG = o.intakeGain!==undefined ? o.intakeGain : 1.0;
+    /* 獨立節流閥（ITB）：進氣口直接對著汽門，高轉時的吸氣聲非常突出。
+       這是 S50 歐規 M3 那個著名進氣聲的來源。 */
+    this.itb = !!o.itb;
+    /* 脈衝形狀：每缸汽門面積大（DOHC 4 汽門）→ 洩放快、脈衝短而銳；
+       SOHC 2 汽門排氣較慢，脈衝拖長、聽起來比較悶。 */
+    this.pulseW = o.pulseWidth!==undefined ? o.pulseWidth : 2.3;
+    this.pulseD = o.pulseDecay!==undefined ? o.pulseDecay : 4.1;
+    /* 機械噪音：柴油的燃燒敲擊、VANOS 的怠速咯咯聲 */
+    this.mechG = o.mechGain!==undefined ? o.mechGain : 1.0;
+    this.rattle = o.rattle||0;      // VANOS／挺桿的低轉異音
+    this.idleJit = o.idleJitter!==undefined ? o.idleJitter : 0.03;
+    this.rattlePh = 0;
   }
 
   /* 單缸壓力：ph 為該缸在循環中的相位（0 到 4π） */
@@ -4170,12 +4186,12 @@ class EngineProcessor extends AudioWorkletProcessor {
     if(ph < 0) ph += TAU4;
     if(ph >= TAU4) ph -= TAU4;
     /* 排氣門開啟後的洩放脈衝：急升、指數衰減 */
-    const w = 2.3;                       // 脈衝持續的弧度
+    const w = this.pulseW;               // 脈衝持續的弧度
     let p = 0;
     if(ph < w){
       const u = ph/w;
       const atk = u < 0.035 ? u/0.035 : 1;
-      p = atk*Math.exp(-4.1*u)*seed*burn;
+      p = atk*Math.exp(-this.pulseD*u)*seed*burn;
     }
     /* 壓縮行程的泵氣：即使斷油也存在，這是限轉噠噠聲的來源 */
     const cph = ph - 2*Math.PI;
@@ -4209,8 +4225,12 @@ class EngineProcessor extends AudioWorkletProcessor {
     const dIntk= Math.min(this.maxD-2, Math.floor(this.fs*2*this.intkL/this.cAir));
 
     /* 進氣與機械噪音的量 */
-    const intakeAmt = (0.05 + 0.55*thr)*(0.35 + rpm/7000);
-    const mechAmt = 0.020 + rpm/9000*0.055 + (this.isDiesel?0.05:0);
+    /* ITB 的進氣聲隨轉速急遽增強（節流閥直接對著汽門，沒有集氣箱緩衝） */
+    const itbBoost = this.itb ? (0.6 + Math.pow(rpm/7000, 1.7)*1.9) : 1;
+    const intakeAmt = (0.05 + 0.55*thr)*(0.35 + rpm/7000)*this.intakeG*itbBoost;
+    const mechAmt = (0.020 + rpm/9000*0.055 + (this.isDiesel?0.05:0))*this.mechG;
+    /* 低轉的機械異音（VANOS／液壓挺桿），轉速一高就被排氣蓋掉 */
+    const rattleAmt = this.rattle*Math.max(0, 1-rpm/2600)*(1-thr*0.6);
     const turboAmt = this.isTurbo ? boost*0.6*(0.3+thr*0.7) : 0;
 
     for(let n=0;n<out.length;n++){
@@ -4219,7 +4239,8 @@ class EngineProcessor extends AudioWorkletProcessor {
         this.theta -= TAU4;
         /* 循環變異：在各缸固定偏差上疊 ±3%。太大會變成「拖拉機」，
            太小會回到電子音。直六天生比直四滑順是點火間隔造成的，不靠這裡調。 */
-        for(let c=0;c<this.cyl;c++) this.fireSeed[c] = this.cylBias[c]*(0.97+Math.random()*0.06);
+        const j=this.idleJit;
+        for(let c=0;c<this.cyl;c++) this.fireSeed[c] = this.cylBias[c]*(1-j+Math.random()*2*j);
       }
 
       /* 所有汽缸的壓力總和 */
@@ -4285,8 +4306,17 @@ class EngineProcessor extends AudioWorkletProcessor {
         }
       }
 
+      /* --- VANOS／挺桿異音：與凸輪軸同步的窄脈衝 --- */
+      let rattleSig = 0;
+      if(rattleAmt > 0.0001){
+        this.rattlePh += dTh*0.5;                    // 凸輪軸轉速是曲軸一半
+        if(this.rattlePh >= 2*Math.PI) this.rattlePh -= 2*Math.PI;
+        const k = Math.pow(Math.max(0, Math.sin(this.rattlePh*this.cyl)), 22);
+        rattleSig = k*(Math.random()*2-1)*rattleAmt;
+      }
+
       /* --- 混音 --- */
-      let s = exh*1.0 + intake*0.55 + mechNoise + turboSig;
+      let s = exh*1.0 + intake*0.55 + mechNoise + turboSig + rattleSig;
 
       /* 直流阻隔 */
       this.dcy = s - this.dcx + 0.9985*this.dcy;
@@ -4301,6 +4331,118 @@ class EngineProcessor extends AudioWorkletProcessor {
 }
 registerProcessor('engine-processor', EngineProcessor);
 `;
+
+
+/* ==========================================================================
+   每具引擎的聲學特性
+   --------------------------------------------------------------------------
+   ★ 這些是「調音參數」，不是查得到的規格。★
+   引擎的聲音沒有官方數據可查（沒有廠商公布排氣管長度或進氣共鳴頻率），
+   下面每一組數字都是依這些實際存在的物理差異推導出來的建模值：
+
+     缸數與點火間隔  直四每轉點火 2 次、直六 3 次 —— 直六天生滑順的原因
+     每缸汽門數      DOHC 4 汽門排氣洩放快 → 脈衝短而銳；SOHC 2 汽門拖長 → 悶
+     單缸排氣量      缸越大單次脈衝能量越強，音調越低沉
+     進氣型式        獨立節流閥（ITB）沒有集氣箱緩衝，高轉進氣聲極為突出
+     VANOS／挺桿     怠速的機械咯咯聲，轉速一高就被排氣蓋過
+     柴油            燃燒敲擊明顯、轉速域低
+
+   參數意義：
+     pipe/header  排氣主管與歧管長度（公尺）→ 決定共鳴音高
+     intake       進氣路徑長度與音量
+     pulseW/D     排氣脈衝的寬度與衰減率（越小越銳利）
+     damp/refl    消音器的吸收與開口端反射（越低越開放）
+     rattle       低轉機械異音
+     idleJitter   燃燒循環變異（越大越「抖」）
+   ========================================================================== */
+const ENGINE_ACOUSTICS = {
+  /* ---- M40 / M43：SOHC 8 汽門直四。單凸輪、每缸兩汽門，排氣洩放慢，
+         聲音悶而粗糙，紅線也低。這是最「不悅耳」的一組。 ---- */
+  M40B16:{pipe:2.9,header:0.50,intake:0.40,intakeGain:0.85,pulseW:2.9,pulseD:3.3,
+          damp:0.44,refl:0.80,rattle:0.010,idleJitter:0.055,
+          note:'SOHC 8 汽門，排氣洩放慢，低沉而略帶顆粒感'},
+  M40B18:{pipe:2.9,header:0.52,intake:0.41,intakeGain:0.88,pulseW:2.9,pulseD:3.2,
+          damp:0.43,refl:0.80,rattle:0.010,idleJitter:0.052},
+  M43B16:{pipe:2.9,header:0.50,intake:0.40,intakeGain:0.85,pulseW:2.85,pulseD:3.35,
+          damp:0.44,refl:0.79,rattle:0.008,idleJitter:0.050,
+          note:'M43 改鏈條正時，怠速比 M40 安靜一些'},
+  M43B18:{pipe:2.9,header:0.52,intake:0.41,intakeGain:0.88,pulseW:2.85,pulseD:3.25,
+          damp:0.43,refl:0.79,rattle:0.008,idleJitter:0.048},
+
+  /* ---- M42 / M44：DOHC 16 汽門直四。四汽門讓脈衝變銳，
+         比 M40／M43 明顯清脆、也更愛拉轉。 ---- */
+  M42B18:{pipe:2.75,header:0.55,intake:0.38,intakeGain:1.05,pulseW:2.25,pulseD:4.3,
+          damp:0.36,refl:0.75,rattle:0.014,idleJitter:0.036,
+          note:'DOHC 16 汽門，脈衝銳利，高轉有明顯的四缸咆哮'},
+  M44B19:{pipe:2.75,header:0.56,intake:0.38,intakeGain:1.06,pulseW:2.2,pulseD:4.4,
+          damp:0.35,refl:0.74,rattle:0.012,idleJitter:0.034},
+
+  /* ---- M50 / M52：DOHC 24 汽門直六。等間隔每轉三次點火，
+         一次點火的餘波還沒散下一缸就接上 —— 這就是 BMW 直六那種連續的
+         絲滑感。歧管較長（六缸排氣要匯流），共鳴音高比直四低。 ---- */
+  M50B20:{pipe:3.0,header:0.70,intake:0.46,intakeGain:0.95,pulseW:2.15,pulseD:4.5,
+          damp:0.34,refl:0.74,rattle:0.010,idleJitter:0.024,
+          note:'早期 M50 無 VANOS，怠速乾淨'},
+  M50B20TU:{pipe:3.0,header:0.70,intake:0.46,intakeGain:0.95,pulseW:2.15,pulseD:4.5,
+          damp:0.34,refl:0.74,rattle:0.030,idleJitter:0.024,
+          note:'單 VANOS，怠速有輕微的機械咯咯聲'},
+  M50B25:{pipe:3.05,header:0.74,intake:0.48,intakeGain:0.98,pulseW:2.05,pulseD:4.35,
+          damp:0.33,refl:0.74,rattle:0.010,idleJitter:0.023},
+  M50B25TU:{pipe:3.05,header:0.74,intake:0.48,intakeGain:0.98,pulseW:2.05,pulseD:4.35,
+          damp:0.33,refl:0.74,rattle:0.032,idleJitter:0.023},
+  M52B20:{pipe:3.0,header:0.71,intake:0.46,intakeGain:0.96,pulseW:2.12,pulseD:4.5,
+          damp:0.35,refl:0.75,rattle:0.034,idleJitter:0.024},
+  M52B25:{pipe:3.05,header:0.75,intake:0.48,intakeGain:0.99,pulseW:2.02,pulseD:4.3,
+          damp:0.34,refl:0.75,rattle:0.036,idleJitter:0.023},
+  M52B28:{pipe:3.1,header:0.78,intake:0.50,intakeGain:1.00,pulseW:1.95,pulseD:4.2,
+          damp:0.33,refl:0.75,rattle:0.036,idleJitter:0.022,
+          note:'2.8 升的單缸排氣量最大，六缸裡最低沉飽滿'},
+
+  /* ---- S50 / S52：M Power。
+         ★ 關鍵差異：歐規 S50B30／S50B32 用「獨立節流閥」（每缸一個節流閥，
+         直接對著進氣門，沒有集氣箱緩衝）—— 高轉那個吸氣的嘶吼就是它。
+         北美的 S50B30US 與 S52B32 是單一節流閥，聽起來接近強化版 M52。 ---- */
+  S50B30:{pipe:2.95,header:0.80,intake:0.30,intakeGain:1.30,itb:true,
+          pulseW:1.75,pulseD:4.9,damp:0.27,refl:0.68,rattle:0.026,idleJitter:0.021,
+          note:'★ITB★ 獨立節流閥，高轉進氣聲極為突出；賽車化排氣，回壓低'},
+  S50B32:{pipe:2.9,header:0.82,intake:0.28,intakeGain:1.38,itb:true,
+          pulseW:1.68,pulseD:5.1,damp:0.25,refl:0.66,rattle:0.024,idleJitter:0.020,
+          note:'★ITB★ 雙 VANOS + 獨立節流閥，紅線 7600，最尖銳的一具'},
+  S50B30US:{pipe:3.05,header:0.76,intake:0.44,intakeGain:1.06,pulseW:1.95,pulseD:4.4,
+          damp:0.31,refl:0.73,rattle:0.030,idleJitter:0.022,
+          note:'北美版單一節流閥，沒有 ITB 的進氣嘶吼'},
+  S52B32:{pipe:3.1,header:0.79,intake:0.46,intakeGain:1.08,pulseW:1.90,pulseD:4.3,
+          damp:0.30,refl:0.72,rattle:0.032,idleJitter:0.022,
+          note:'北美版單一節流閥，接近排氣量放大的 M52'},
+
+  /* ---- 柴油：燃燒敲擊是主角。轉速域低（紅線 4800），
+         機械噪音大，怠速抖動明顯。 ---- */
+  M41D17:{pipe:3.2,header:0.48,intake:0.52,intakeGain:0.55,pulseW:3.2,pulseD:2.9,
+          damp:0.52,refl:0.84,rattle:0.050,idleJitter:0.075,mechGain:2.6,
+          note:'四缸柴油，燃燒敲擊明顯，轉速域低'},
+  M51D25:{pipe:3.3,header:0.66,intake:0.56,intakeGain:0.52,pulseW:3.1,pulseD:2.8,
+          damp:0.53,refl:0.84,rattle:0.046,idleJitter:0.062,mechGain:2.4,
+          note:'六缸柴油，比四缸柴油滑順但仍有明顯敲擊'},
+  M51D25OL:{pipe:3.3,header:0.66,intake:0.55,intakeGain:0.56,pulseW:3.05,pulseD:2.85,
+          damp:0.51,refl:0.83,rattle:0.044,idleJitter:0.058,mechGain:2.3,
+          note:'中冷版，增壓較高，渦輪聲較明顯'},
+
+  /* ---- Eclipse ---- */
+  '4G63T':{pipe:2.45,header:0.42,intake:0.34,intakeGain:1.02,pulseW:2.3,pulseD:4.0,
+          damp:0.40,refl:0.70,rattle:0.016,idleJitter:0.040,
+          note:'渦輪在歧管後方，把排氣脈衝削平了一部分 —— 這是渦輪車聲音比較悶、'
+              +'但放油門有洩壓閥與回火的原因。歧管短（渦輪要靠近排氣門）。'},
+  '420A':{pipe:2.7,header:0.50,intake:0.40,intakeGain:1.00,pulseW:2.35,pulseD:4.1,
+          damp:0.40,refl:0.76,rattle:0.012,idleJitter:0.038,
+          note:'Chrysler 血統的自然進氣 DOHC，聲音比 4G63T 清亮但單薄'},
+};
+
+function engineAcoustics(engId){
+  return ENGINE_ACOUSTICS[engId] || {
+    pipe:2.8, header:0.60, intake:0.42, intakeGain:1.0,
+    pulseW:2.3, pulseD:4.1, damp:0.34, refl:0.74, rattle:0.012, idleJitter:0.035,
+  };
+}
 
 /* --------------------------------------------------------------------------
    主執行緒的包裝
@@ -4373,12 +4515,23 @@ const EngineAudio = {
     });
     this.node.connect(this.chainIn);
     this.running = true;
+    SFX.loadAll();          // 一次性音效：有就用，沒有就走合成
     return true;
   },
 
   reconfigure(cfg){ if(this.node) this.node.port.postMessage({type:'config',...cfg}); },
-  bov(){ if(this.node) this.node.port.postMessage({type:'bov'}); },
-  pop(){ if(this.node) this.node.port.postMessage({type:'pop'}); },
+  /* 洩壓閥與回火：有錄音就播錄音（真實感遠勝合成），沒有才用 worklet 合成 */
+  bov(intensity=1){
+    if(SFX.play('bov',{gain:0.6+0.4*intensity, rate:0.94+Math.random()*0.12})) return;
+    if(this.node) this.node.port.postMessage({type:'bov'});
+  },
+  pop(){
+    if(SFX.play('backfire',{rate:0.9+Math.random()*0.25})) return;
+    if(this.node) this.node.port.postMessage({type:'pop'});
+  },
+  /* 換檔聲：合成沒有對應物，沒有音檔就靜默 */
+  shift(dir){ SFX.play(dir>0?'shiftUp':'shiftDown',{rate:0.96+Math.random()*0.08}); },
+  starterSfx(){ return SFX.play('starter'); },
 
   set(name, value, smooth=.02){
     if(!this.node) return;
@@ -4413,23 +4566,99 @@ const EngineAudio = {
 };
 EngineAudio.load();
 
+
+/* ==========================================================================
+   一次性音效插槽
+   --------------------------------------------------------------------------
+   連續的引擎聲必須用合成 —— 任何固定音檔都沒辦法跟著轉速、負載與增壓即時變化。
+   但「瞬態事件」剛好相反：換檔的機械聲、洩壓閥、回火、起動馬達都是一次性的，
+   用真實錄音會比合成好非常多。專業賽車遊戲也是這樣分工的。
+
+   所以這裡開一組插槽：檔案存在就用檔案，不存在就自動回退到合成，
+   兩邊都不會壞。音檔放在 assets/audio/，格式與命名見 docs/音效製作規格.md。
+
+   ★ 檔案是選配的 ★ 沒有任何音檔時，app 的行為與現在完全相同，
+   仍然維持單檔離線可用。
+   ========================================================================== */
+const SFX_SLOTS = {
+  shiftUp:   {file:'shift-up.ogg',   gain:0.55, desc:'升檔：排檔桿入檔的機械聲'},
+  shiftDown: {file:'shift-down.ogg', gain:0.55, desc:'降檔'},
+  bov:       {file:'bov.ogg',        gain:0.70, desc:'洩壓閥（渦輪車放油門）'},
+  backfire:  {file:'backfire.ogg',   gain:0.65, desc:'排氣回火爆音'},
+  starter:   {file:'starter.ogg',    gain:0.60, desc:'起動馬達拖轉'},
+  limiter:   {file:'limiter.ogg',    gain:0.50, desc:'斷油限轉的補強層（疊在合成之上）'},
+};
+
+const SFX = {
+  buf:{}, tried:{}, base:'./assets/audio/',
+
+  /* 非阻塞載入：載不到就永遠標記為沒有，不重試、不拋錯 */
+  load(key){
+    if(this.tried[key]) return;
+    this.tried[key]=true;
+    const slot=SFX_SLOTS[key]; if(!slot||!EngineAudio.ctx) return;
+    fetch(this.base+slot.file)
+      .then(r=>{ if(!r.ok) throw new Error('404'); return r.arrayBuffer(); })
+      .then(a=>EngineAudio.ctx.decodeAudioData(a))
+      .then(b=>{ this.buf[key]=b; })
+      .catch(()=>{ this.buf[key]=null; });   // 沒有這個檔案 → 用合成
+  },
+
+  loadAll(){ Object.keys(SFX_SLOTS).forEach(k=>this.load(k)); },
+
+  /* 有音檔就播並回傳 true；沒有就回傳 false 讓呼叫端走合成 */
+  play(key, opt={}){
+    const b=this.buf[key];
+    if(!b || !EngineAudio.ctx || !EngineAudio.chainIn) return false;
+    const src=EngineAudio.ctx.createBufferSource();
+    src.buffer=b;
+    if(opt.rate) src.playbackRate.value=opt.rate;
+    const g=EngineAudio.ctx.createGain();
+    g.gain.value=(SFX_SLOTS[key].gain||0.6)*(opt.gain!==undefined?opt.gain:1);
+    src.connect(g); g.connect(EngineAudio.chainIn);
+    src.start();
+    return true;
+  },
+
+  has(key){ return !!this.buf[key]; },
+};
+
+/* 在 UI 上告訴使用者目前載到了哪些音檔 */
+function sfxStatus(){
+  return Object.keys(SFX_SLOTS).map(k=>({
+    key:k, file:SFX_SLOTS[k].file, desc:SFX_SLOTS[k].desc, loaded:SFX.has(k),
+  }));
+}
+
 /* 由車輛資料組出 worklet 的設定 */
 function engineAudioConfig(S){
   const cv = S.cfg.cv, eng = S.cfg.eng;
   const cyl = (eng && +eng.cyl) || 4;
+  const A = engineAcoustics(eng ? eng.id : '');
   const build = (typeof car==='function'&&car()) ? car().build : {};
-  /* 排氣尾段影響管長與阻尼：四出比單出短而開放，聲音更亮 */
-  const tips = build.tips||'single';
-  const pipeL = {none:3.4, single:2.9, dual:2.5, quad:2.1}[tips] || 2.7;
-  const damp  = {none:.46, single:.36, dual:.30, quad:.24}[tips] || .34;
-  const refl  = {none:.80, single:.75, dual:.70, quad:.64}[tips] || .74;
+
+  /* 排氣尾段是在引擎本身的特性上做「修正」，不是取代 ——
+     同一顆 S50 換四出還是 S50，只是更開放。 */
+  const tips = build.tips || 'single';
+  const tipPipe = {none:1.14, single:1.00, dual:0.90, quad:0.80}[tips] || 1;
+  const tipDamp = {none:1.30, single:1.00, dual:0.84, quad:0.70}[tips] || 1;
+  const tipRefl = {none:1.07, single:1.00, dual:0.94, quad:0.87}[tips] || 1;
+
   return {
     cylinders: cyl,
-    pipeLength: pipeL,
-    headerLength: cyl>=6 ? .72 : .58,
-    intakeLength: cyl>=6 ? .48 : .38,
+    pipeLength:   A.pipe   * tipPipe,
+    headerLength: A.header,
+    intakeLength: A.intake,
+    intakeGain:   A.intakeGain,
+    itb:          !!A.itb,
+    pulseWidth:   A.pulseW,
+    pulseDecay:   A.pulseD,
+    mechGain:     A.mechGain || 1,
+    rattle:       A.rattle || 0,
+    idleJitter:   A.idleJitter,
+    damp:    Math.max(.12, Math.min(.72, A.damp * tipDamp)),
+    reflect: Math.max(.40, Math.min(.90, A.refl * tipRefl)),
     turbo: !!cv.turbo, diesel: !!cv.diesel,
-    damp, reflect: refl,
   };
 }
 

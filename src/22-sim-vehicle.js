@@ -223,7 +223,9 @@ function shiftTo(S, g){
   g = Math.max(-1, Math.min(n, g|0));
   if(g===S.gear || S.shifting>0) return;
   S.shiftFrom = S.gear;
+  const dir = g>S.gear ? 1 : -1;
   S.gear = g;
+  if(typeof EngineAudio!=='undefined' && EngineAudio.running) EngineAudio.shift(dir);
   /* 換檔時間：自排較長且不完全斷離合，手排短而乾脆 */
   S.shifting = S.cfg.auto ? .30 : .16;
   S.lastShift = g;
